@@ -178,8 +178,6 @@ func (cc *CosmosProvider) TxServiceBroadcast(ctx context.Context, req *tx.Broadc
 
 	wg.Add(1)
 
-	dynamicFee := cc.DynamicFee(ctx)
-
 	err = cc.broadcastTx(
 		ctx,
 		req.TxBytes,
@@ -188,7 +186,6 @@ func (cc *CosmosProvider) TxServiceBroadcast(ctx context.Context, req *tx.Broadc
 		ctx,
 		blockTimeout,
 		[]func(*provider.RelayerTxResponse, error){callback},
-		dynamicFee,
 	)
 
 	if err != nil {

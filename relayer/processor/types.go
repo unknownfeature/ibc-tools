@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"sort"
 
-	chantypes "github.com/cosmos/ibc-go/v8/modules/core/04-channel/types"
+	chantypes "github.com/cosmos/ibc-go/v9/modules/core/04-channel/types"
 	"github.com/cosmos/relayer/v2/relayer/provider"
 	"go.uber.org/zap/zapcore"
 )
@@ -460,29 +460,6 @@ func (c ChannelPacketMessagesCache) Merge(other ChannelPacketMessagesCache) {
 		}
 		c[channelKey].Merge(messageCache)
 	}
-}
-
-// ShouldRetainSequence returns true if packet is applicable to the channels for path processors that are subscribed to this chain processor
-func (c ChannelPacketMessagesCache) ShouldRetainSequence(p PathProcessors, k ChannelKey, chainID string, m string, seq uint64) bool {
-	if !p.IsRelayedChannel(k, chainID) {
-		return false
-	}
-	if _, ok := c[k]; !ok {
-		return true
-	}
-	if _, ok := c[k][m]; !ok {
-		return true
-	}
-	for sequence := range c[k][m] {
-		if sequence == seq {
-			// already have this sequence number
-			// there can be multiple MsgRecvPacket, MsgAcknowledgement, MsgTimeout, and MsgTimeoutOnClose for the same packet
-			// from different relayers.
-			return false
-		}
-	}
-
-	return true
 }
 
 // Retain assumes the packet is applicable to the channels for a path processor that is subscribed to this chain processor.

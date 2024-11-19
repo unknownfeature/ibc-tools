@@ -19,7 +19,6 @@ type ChainProcessor interface {
 
 	// Set the PathProcessors that this ChainProcessor should publish relevant IBC events to.
 	// ChainProcessors need reference to their PathProcessors and vice-versa, handled by EventProcessorBuilder.Build().
-	SetPathProcessors(pathProcessors PathProcessors)
 }
 
 // ChainProcessors is a slice of ChainProcessor instances.

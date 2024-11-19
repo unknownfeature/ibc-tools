@@ -1,15 +1,12 @@
 package processor
 
 import (
-	"context"
 	"encoding/base64"
 	"fmt"
 	"strings"
 	"sync"
 
-	conntypes "github.com/cosmos/ibc-go/v8/modules/core/03-connection/types"
-	chantypes "github.com/cosmos/ibc-go/v8/modules/core/04-channel/types"
-	ibcexported "github.com/cosmos/ibc-go/v8/modules/core/exported"
+	chantypes "github.com/cosmos/ibc-go/v9/modules/core/04-channel/types"
 	"github.com/cosmos/relayer/v2/relayer/provider"
 	"go.uber.org/zap/zapcore"
 )
@@ -28,68 +25,11 @@ type pathEndMessages struct {
 	clientICQMessages  []clientICQMessage
 }
 
-type ibcMessage interface {
-	// assemble executes the appropriate proof query function,
-	// then, if successful, assembles the message for the destination.
-	assemble(ctx context.Context, src, dst *pathEndRuntime) (provider.RelayerMessage, error)
-
-	// tracker creates a message tracker for message status
-	tracker(assembled provider.RelayerMessage) messageToTrack
-
-	// msgType returns a human readable string for logging describing the message type.
-	msgType() string
-
-	// satisfies zapcore.ObjectMarshaler interface for use with zap.Object().
-	MarshalLogObject(enc zapcore.ObjectEncoder) error
-}
-
 // packetIBCMessage holds a packet message's eventType and sequence along with it,
 // useful for sending packets around internal to the PathProcessor.
 type packetIBCMessage struct {
 	info      provider.PacketInfo
 	eventType string
-}
-
-// assemble executes the appropriate proof query function,
-// then, if successful, assembles the packet message for the destination.
-func (msg packetIBCMessage) assemble(
-	ctx context.Context,
-	src, dst *pathEndRuntime,
-) (provider.RelayerMessage, error) {
-	var packetProof func(context.Context, provider.PacketInfo, uint64) (provider.PacketProof, error)
-	var assembleMessage func(provider.PacketInfo, provider.PacketProof) (provider.RelayerMessage, error)
-	switch msg.eventType {
-	case chantypes.EventTypeRecvPacket:
-		packetProof = src.chainProvider.PacketCommitment
-		assembleMessage = dst.chainProvider.MsgRecvPacket
-	case chantypes.EventTypeAcknowledgePacket:
-		packetProof = src.chainProvider.PacketAcknowledgement
-		assembleMessage = dst.chainProvider.MsgAcknowledgement
-	case chantypes.EventTypeTimeoutPacket:
-		if msg.info.ChannelOrder == chantypes.ORDERED.String() {
-			packetProof = src.chainProvider.NextSeqRecv
-		} else {
-			packetProof = src.chainProvider.PacketReceipt
-		}
-
-		assembleMessage = dst.chainProvider.MsgTimeout
-	default:
-		return nil, fmt.Errorf("unexpected packet message eventType for message assembly: %s", msg.eventType)
-	}
-	if src.clientState.ClientID == ibcexported.LocalhostClientID {
-		packetProof = src.localhostSentinelProofPacket
-	}
-
-	ctx, cancel := context.WithTimeout(ctx, packetProofQueryTimeout)
-	defer cancel()
-
-	var proof provider.PacketProof
-	var err error
-	proof, err = packetProof(ctx, msg.info, src.latestBlock.Height)
-	if err != nil {
-		return nil, fmt.Errorf("error querying packet proof: %w", err)
-	}
-	return assembleMessage(msg.info, proof)
 }
 
 // tracker creates a message tracker for message status
@@ -138,51 +78,6 @@ type channelIBCMessage struct {
 	info      provider.ChannelInfo
 }
 
-// assemble executes the appropriate proof query function,
-// then, if successful, assembles the message for the destination.
-func (msg channelIBCMessage) assemble(
-	ctx context.Context,
-	src, dst *pathEndRuntime,
-) (provider.RelayerMessage, error) {
-	var chanProof func(context.Context, provider.ChannelInfo, uint64) (provider.ChannelProof, error)
-	var assembleMessage func(provider.ChannelInfo, provider.ChannelProof) (provider.RelayerMessage, error)
-	switch msg.eventType {
-	case chantypes.EventTypeChannelOpenInit:
-		// don't need proof for this message
-		assembleMessage = dst.chainProvider.MsgChannelOpenInit
-	case chantypes.EventTypeChannelOpenTry:
-		chanProof = src.chainProvider.ChannelProof
-		assembleMessage = dst.chainProvider.MsgChannelOpenTry
-	case chantypes.EventTypeChannelOpenAck:
-		chanProof = src.chainProvider.ChannelProof
-		assembleMessage = dst.chainProvider.MsgChannelOpenAck
-	case chantypes.EventTypeChannelOpenConfirm:
-		chanProof = src.chainProvider.ChannelProof
-		assembleMessage = dst.chainProvider.MsgChannelOpenConfirm
-	case chantypes.EventTypeChannelCloseInit:
-		// don't need proof for this message
-		assembleMessage = dst.chainProvider.MsgChannelCloseInit
-	case chantypes.EventTypeChannelCloseConfirm:
-		chanProof = src.chainProvider.ChannelProof
-		assembleMessage = dst.chainProvider.MsgChannelCloseConfirm
-	default:
-		return nil, fmt.Errorf("unexpected channel message eventType for message assembly: %s", msg.eventType)
-	}
-	if src.clientState.ClientID == ibcexported.LocalhostClientID {
-		chanProof = src.localhostSentinelProofChannel
-	}
-
-	var proof provider.ChannelProof
-	var err error
-	if chanProof != nil {
-		proof, err = chanProof(ctx, msg.info, src.latestBlock.Height)
-		if err != nil {
-			return nil, fmt.Errorf("error querying channel proof: %w", err)
-		}
-	}
-	return assembleMessage(msg.info, proof)
-}
-
 // tracker creates a message tracker for message status
 func (msg channelIBCMessage) tracker(assembled provider.RelayerMessage) messageToTrack {
 	return channelMessageToTrack{
@@ -216,45 +111,6 @@ func (msg channelIBCMessage) MarshalLogObject(enc zapcore.ObjectEncoder) error {
 type connectionIBCMessage struct {
 	eventType string
 	info      provider.ConnectionInfo
-}
-
-// assemble executes the appropriate proof query function,
-// then, if successful, assembles the message for the destination.
-func (msg connectionIBCMessage) assemble(
-	ctx context.Context,
-	src, dst *pathEndRuntime,
-) (provider.RelayerMessage, error) {
-	var connProof func(context.Context, provider.ConnectionInfo, uint64) (provider.ConnectionProof, error)
-	var assembleMessage func(provider.ConnectionInfo, provider.ConnectionProof) (provider.RelayerMessage, error)
-	switch msg.eventType {
-	case conntypes.EventTypeConnectionOpenInit:
-		// don't need proof for this message
-		msg.info.CounterpartyCommitmentPrefix = src.chainProvider.CommitmentPrefix()
-		assembleMessage = dst.chainProvider.MsgConnectionOpenInit
-	case conntypes.EventTypeConnectionOpenTry:
-		msg.info.CounterpartyCommitmentPrefix = src.chainProvider.CommitmentPrefix()
-		connProof = src.chainProvider.ConnectionHandshakeProof
-		assembleMessage = dst.chainProvider.MsgConnectionOpenTry
-	case conntypes.EventTypeConnectionOpenAck:
-		connProof = src.chainProvider.ConnectionHandshakeProof
-		assembleMessage = dst.chainProvider.MsgConnectionOpenAck
-	case conntypes.EventTypeConnectionOpenConfirm:
-		connProof = src.chainProvider.ConnectionProof
-		assembleMessage = dst.chainProvider.MsgConnectionOpenConfirm
-	default:
-		return nil, fmt.Errorf("unexpected connection message eventType for message assembly: %s", msg.eventType)
-	}
-
-	var proof provider.ConnectionProof
-	var err error
-	if connProof != nil {
-		proof, err = connProof(ctx, msg.info, src.latestBlock.Height)
-		if err != nil {
-			return nil, fmt.Errorf("error querying connection proof: %w", err)
-		}
-	}
-
-	return assembleMessage(msg.info, proof)
 }
 
 // tracker creates a message tracker for message status
@@ -291,23 +147,6 @@ const (
 // useful for sending messages around internal to the PathProcessor.
 type clientICQMessage struct {
 	info provider.ClientICQInfo
-}
-
-// assemble executes the query against the source chain,
-// then, if successful, assembles the response message for the destination.
-func (msg clientICQMessage) assemble(
-	ctx context.Context,
-	src, dst *pathEndRuntime,
-) (provider.RelayerMessage, error) {
-	ctx, cancel := context.WithTimeout(ctx, interchainQueryTimeout)
-	defer cancel()
-
-	proof, err := src.chainProvider.QueryICQWithProof(ctx, msg.info.Type, msg.info.Request, src.latestBlock.Height-1)
-	if err != nil {
-		return nil, fmt.Errorf("error during interchain query: %w", err)
-	}
-
-	return dst.chainProvider.MsgSubmitQueryResponse(msg.info.Chain, msg.info.QueryID, proof)
 }
 
 // tracker creates a message tracker for message status
@@ -527,47 +366,6 @@ func (c *clientICQProcessingCache) deleteMessages(toDelete ...provider.ClientICQ
 	for _, queryID := range toDelete {
 		delete(c.m, queryID)
 	}
-}
-
-// contains MsgRecvPacket from counterparty
-// entire packet flow
-type pathEndPacketFlowMessages struct {
-	Src                   *pathEndRuntime
-	Dst                   *pathEndRuntime
-	ChannelKey            ChannelKey
-	SrcPreTransfer        PacketSequenceCache
-	SrcMsgTransfer        PacketSequenceCache
-	DstMsgRecvPacket      PacketSequenceCache
-	SrcMsgAcknowledgement PacketSequenceCache
-	SrcMsgTimeout         PacketSequenceCache
-}
-
-type pathEndConnectionHandshakeMessages struct {
-	Src                         *pathEndRuntime
-	Dst                         *pathEndRuntime
-	SrcMsgConnectionPreInit     ConnectionMessageCache
-	SrcMsgConnectionOpenInit    ConnectionMessageCache
-	DstMsgConnectionOpenTry     ConnectionMessageCache
-	SrcMsgConnectionOpenAck     ConnectionMessageCache
-	DstMsgConnectionOpenConfirm ConnectionMessageCache
-}
-
-type pathEndChannelHandshakeMessages struct {
-	Src                      *pathEndRuntime
-	Dst                      *pathEndRuntime
-	SrcMsgChannelPreInit     ChannelMessageCache
-	SrcMsgChannelOpenInit    ChannelMessageCache
-	DstMsgChannelOpenTry     ChannelMessageCache
-	SrcMsgChannelOpenAck     ChannelMessageCache
-	DstMsgChannelOpenConfirm ChannelMessageCache
-}
-
-type pathEndChannelCloseMessages struct {
-	Src                       *pathEndRuntime
-	Dst                       *pathEndRuntime
-	SrcMsgChannelPreInit      ChannelMessageCache
-	SrcMsgChannelCloseInit    ChannelMessageCache
-	DstMsgChannelCloseConfirm ChannelMessageCache
 }
 
 type pathEndPacketFlowResponse struct {

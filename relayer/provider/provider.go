@@ -9,13 +9,13 @@ import (
 	"github.com/cometbft/cometbft/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/gogoproto/proto"
-	transfertypes "github.com/cosmos/ibc-go/v8/modules/apps/transfer/types"
-	clienttypes "github.com/cosmos/ibc-go/v8/modules/core/02-client/types"
-	conntypes "github.com/cosmos/ibc-go/v8/modules/core/03-connection/types"
-	chantypes "github.com/cosmos/ibc-go/v8/modules/core/04-channel/types"
-	commitmenttypes "github.com/cosmos/ibc-go/v8/modules/core/23-commitment/types"
-	ibcexported "github.com/cosmos/ibc-go/v8/modules/core/exported"
-	tendermint "github.com/cosmos/ibc-go/v8/modules/light-clients/07-tendermint"
+	transfertypes "github.com/cosmos/ibc-go/v9/modules/apps/transfer/types"
+	clienttypes "github.com/cosmos/ibc-go/v9/modules/core/02-client/types"
+	conntypes "github.com/cosmos/ibc-go/v9/modules/core/03-connection/types"
+	chantypes "github.com/cosmos/ibc-go/v9/modules/core/04-channel/types"
+	commitmenttypes "github.com/cosmos/ibc-go/v9/modules/core/23-commitment/types"
+	ibcexported "github.com/cosmos/ibc-go/v9/modules/core/exported"
+	tendermint "github.com/cosmos/ibc-go/v9/modules/light-clients/07-tendermint"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
@@ -384,13 +384,13 @@ type ChainProvider interface {
 	RelayPacketFromSequence(ctx context.Context, src ChainProvider, srch, dsth, seq uint64, srcChanID, srcPortID string, order chantypes.Order) (RelayerMessage, RelayerMessage, error)
 	AcknowledgementFromSequence(ctx context.Context, dst ChainProvider, dsth, seq uint64, dstChanID, dstPortID, srcChanID, srcPortID string) (RelayerMessage, error)
 
-	SendMessage(ctx context.Context, msg RelayerMessage, memo string) (*RelayerTxResponse, bool, error)
-	SendMessages(ctx context.Context, msgs []RelayerMessage, memo string) (*RelayerTxResponse, bool, error)
+	SendMessage(ctx context.Context, msg RelayerMessage, memo string, gas uint64) (*RelayerTxResponse, bool, error)
+	SendMessages(ctx context.Context, msgs []RelayerMessage, memo string, gas uint64) (*RelayerTxResponse, bool, error)
 	SendMessagesToMempool(
 		ctx context.Context,
 		msgs []RelayerMessage,
 		memo string,
-
+		gas uint64,
 		asyncCtx context.Context,
 		asyncCallbacks []func(*RelayerTxResponse, error),
 	) error
@@ -409,7 +409,6 @@ type ChainProvider interface {
 	Sprint(toPrint proto.Message) (string, error)
 
 	SetRpcAddr(rpcAddr string) error
-	SetBackupRpcAddrs(rpcAddrs []string) error
 }
 
 // Do we need intermediate types? i.e. can we use the SDK types for both substrate and cosmos?
@@ -467,9 +466,8 @@ type QueryProvider interface {
 	QueryPacketReceipt(ctx context.Context, height int64, channelid, portid string, seq uint64) (recRes *chantypes.QueryPacketReceiptResponse, err error)
 
 	// ics 20 - transfer
-	QueryDenomTrace(ctx context.Context, denom string) (*transfertypes.DenomTrace, error)
-	QueryDenomTraces(ctx context.Context, offset, limit uint64, height int64) ([]transfertypes.DenomTrace, error)
-	QueryDenomHash(ctx context.Context, trace string) (string, error)
+	QueryDenomTrace(ctx context.Context, denom string) (*transfertypes.Hop, error)
+	QueryDenomTraces(ctx context.Context, offset, limit uint64, height int64) ([]transfertypes.Hop, error)
 }
 
 type RelayPacket interface {

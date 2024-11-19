@@ -9,7 +9,7 @@ import (
 	"github.com/avast/retry-go/v4"
 
 	"github.com/cosmos/cosmos-sdk/crypto/hd"
-	clienttypes "github.com/cosmos/ibc-go/v8/modules/core/02-client/types"
+	clienttypes "github.com/cosmos/ibc-go/v9/modules/core/02-client/types"
 	"github.com/cosmos/relayer/v2/relayer/provider"
 	"go.uber.org/zap"
 )
@@ -32,42 +32,11 @@ type Chain struct {
 	ChainProvider provider.ChainProvider
 	Chainid       string `yaml:"chain-id" json:"chain-id"`
 
-	PathEnd *PathEnd `yaml:"-" json:"-"`
-
 	debug bool
 }
 
 // Chains is a collection of Chain (mapped by chain_name)
 type Chains map[string]*Chain
-
-// ValidateClientPaths takes two chains and validates their clients
-func ValidateClientPaths(src, dst *Chain) error {
-	if err := src.PathEnd.Vclient(); err != nil {
-		return err
-	}
-	if err := dst.PathEnd.Vclient(); err != nil {
-		return err
-	}
-	return nil
-}
-
-// ValidateConnectionPaths takes two chains and validates the connections
-// and underlying client identifiers
-func ValidateConnectionPaths(src, dst *Chain) error {
-	if err := src.PathEnd.Vclient(); err != nil {
-		return err
-	}
-	if err := dst.PathEnd.Vclient(); err != nil {
-		return err
-	}
-	if err := src.PathEnd.Vconn(); err != nil {
-		return err
-	}
-	if err := dst.PathEnd.Vconn(); err != nil {
-		return err
-	}
-	return nil
-}
 
 func NewChain(log *zap.Logger, prov provider.ChainProvider, debug bool) *Chain {
 	return &Chain{
@@ -79,14 +48,6 @@ func NewChain(log *zap.Logger, prov provider.ChainProvider, debug bool) *Chain {
 
 func (c *Chain) ChainID() string {
 	return c.ChainProvider.ChainId()
-}
-
-func (c *Chain) ConnectionID() string {
-	return c.PathEnd.ConnectionID
-}
-
-func (c *Chain) ClientID() string {
-	return c.PathEnd.ClientID
 }
 
 // GetSelfVersion returns the version of the given chain

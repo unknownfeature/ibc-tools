@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"math"
 	"strconv"
 	"strings"
 	"sync"
@@ -16,6 +15,7 @@ import (
 	"cosmossdk.io/x/feegrant"
 	upgradetypes "cosmossdk.io/x/upgrade/types"
 	abci "github.com/cometbft/cometbft/abci/types"
+	coretypes "github.com/cometbft/cometbft/rpc/core/types"
 	tmtypes "github.com/cometbft/cometbft/types"
 	"github.com/cosmos/cosmos-sdk/codec"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -24,15 +24,14 @@ import (
 	bankTypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/cosmos/cosmos-sdk/x/params/types/proposal"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
-	transfertypes "github.com/cosmos/ibc-go/v8/modules/apps/transfer/types"
-	clienttypes "github.com/cosmos/ibc-go/v8/modules/core/02-client/types"
-	conntypes "github.com/cosmos/ibc-go/v8/modules/core/03-connection/types"
-	chantypes "github.com/cosmos/ibc-go/v8/modules/core/04-channel/types"
-	commitmenttypes "github.com/cosmos/ibc-go/v8/modules/core/23-commitment/types"
-	host "github.com/cosmos/ibc-go/v8/modules/core/24-host"
-	ibcexported "github.com/cosmos/ibc-go/v8/modules/core/exported"
-	tmclient "github.com/cosmos/ibc-go/v8/modules/light-clients/07-tendermint"
-	"github.com/cosmos/relayer/v2/cclient"
+	transfertypes "github.com/cosmos/ibc-go/v9/modules/apps/transfer/types"
+	clienttypes "github.com/cosmos/ibc-go/v9/modules/core/02-client/types"
+	conntypes "github.com/cosmos/ibc-go/v9/modules/core/03-connection/types"
+	chantypes "github.com/cosmos/ibc-go/v9/modules/core/04-channel/types"
+	commitmenttypes "github.com/cosmos/ibc-go/v9/modules/core/23-commitment/types"
+	host "github.com/cosmos/ibc-go/v9/modules/core/24-host"
+	ibcexported "github.com/cosmos/ibc-go/v9/modules/core/exported"
+	tmclient "github.com/cosmos/ibc-go/v9/modules/light-clients/07-tendermint"
 	"github.com/cosmos/relayer/v2/relayer/chains"
 	"github.com/cosmos/relayer/v2/relayer/provider"
 	"go.uber.org/zap"
@@ -67,7 +66,7 @@ func (cc *CosmosProvider) queryIBCMessages(ctx context.Context, log *zap.Logger,
 	)
 
 	eg.Go(func() error {
-		res, err := cc.ConsensusClient.GetBlockSearch(ctx, query, &page, &limit, "")
+		res, err := cc.RPCClient.BlockSearch(ctx, query, &page, &limit, "")
 		if err != nil {
 			return err
 		}
@@ -77,7 +76,7 @@ func (cc *CosmosProvider) queryIBCMessages(ctx context.Context, log *zap.Logger,
 		for _, b := range res.Blocks {
 			b := b
 			nestedEg.Go(func() error {
-				block, err := cc.ConsensusClient.GetBlockResults(ctx, uint64(b.Block.Height))
+				block, err := cc.RPCClient.BlockResults(ctx, &b.Block.Height)
 				if err != nil {
 					return err
 				}
@@ -93,7 +92,7 @@ func (cc *CosmosProvider) queryIBCMessages(ctx context.Context, log *zap.Logger,
 	})
 
 	eg.Go(func() error {
-		res, err := cc.ConsensusClient.GetTxSearch(ctx, query, true, &page, &limit, "")
+		res, err := cc.RPCClient.TxSearch(ctx, query, true, &page, &limit, "")
 		if err != nil {
 			return err
 		}
@@ -121,8 +120,7 @@ func (cc *CosmosProvider) QueryTx(ctx context.Context, hashHex string) (*provide
 		return nil, err
 	}
 
-	// TODO(reece): Why is this true when we do not use the proof?
-	resp, err := cc.ConsensusClient.GetTx(ctx, hash, true)
+	resp, err := cc.RPCClient.Tx(ctx, hash, true)
 	if err != nil {
 		return nil, err
 	}
@@ -152,7 +150,7 @@ func (cc *CosmosProvider) QueryTxs(ctx context.Context, page, limit int, events 
 		return nil, errors.New("limit must greater than 0")
 	}
 
-	res, err := cc.ConsensusClient.GetTxSearch(ctx, strings.Join(events, " AND "), true, &page, &limit, "")
+	res, err := cc.RPCClient.TxSearch(ctx, strings.Join(events, " AND "), true, &page, &limit, "")
 	if err != nil {
 		return nil, err
 	}
@@ -317,11 +315,7 @@ func (cc *CosmosProvider) QueryBalanceWithAddress(ctx context.Context, address s
 	return coins, nil
 }
 
-func (cc *CosmosProvider) queryParamsSubspaceTime(
-	ctx context.Context,
-	subspace string,
-	key string,
-) (time.Duration, error) {
+func (cc *CosmosProvider) queryParamsSubspaceTime(ctx context.Context, subspace string, key string) (time.Duration, error) {
 	queryClient := proposal.NewQueryClient(cc)
 
 	params := proposal.QueryParamsRequest{Subspace: subspace, Key: key}
@@ -341,14 +335,6 @@ func (cc *CosmosProvider) queryParamsSubspaceTime(
 		return 0, fmt.Errorf("failed to parse %s from %s param: %w", key, subspace, err)
 	}
 
-	if unbondingValue > math.MaxInt64 {
-		return 0, fmt.Errorf("value %d is too large to be converted to time.Duration", unbondingValue)
-	}
-
-	if unbondingValue <= 0 {
-		return 0, fmt.Errorf("value %d cannot be less than or equal to zero, unbonding period must be a positive value ", unbondingValue)
-	}
-
 	return time.Duration(unbondingValue), nil
 }
 
@@ -361,7 +347,7 @@ func (cc *CosmosProvider) QueryUnbondingPeriod(ctx context.Context) (time.Durati
 		return consumerUnbondingPeriod, nil
 	}
 
-	// Attempt Staking query.
+	//Attempt Staking query.
 	unbondingPeriod, stakingParamsErr := cc.queryParamsSubspaceTime(ctx, "staking", "UnbondingTime")
 	if stakingParamsErr == nil {
 		return unbondingPeriod, nil
@@ -393,9 +379,9 @@ func (cc *CosmosProvider) QueryTendermintProof(ctx context.Context, height int64
 	// ABCI queries at heights 1, 2 or less than or equal to 0 are not supported.
 	// Base app does not support queries for height less than or equal to 1.
 	// Therefore, a query at height 2 would be equivalent to a query at height 3.
-	// A height of 0 will query with the latest state.
+	// A height of 0 will query with the lastest state.
 	if height != 0 && height <= 2 {
-		return nil, nil, clienttypes.Height{}, errors.New("proof queries at height <= 2 are not supported")
+		return nil, nil, clienttypes.Height{}, fmt.Errorf("proof queries at height <= 2 are not supported")
 	}
 
 	// Use the IAVL height if a valid tendermint height is passed in.
@@ -605,7 +591,7 @@ func (cc *CosmosProvider) QueryUpgradedConsState(ctx context.Context, height int
 // QueryConsensusState returns a consensus state for a given chain to be used as a
 // client in another chain, fetches latest height when passed 0 as arg
 func (cc *CosmosProvider) QueryConsensusState(ctx context.Context, height int64) (ibcexported.ConsensusState, int64, error) {
-	commit, err := cc.ConsensusClient.GetCommit(ctx, uint64(height))
+	commit, err := cc.RPCClient.Commit(ctx, &height)
 	if err != nil {
 		return &tmclient.ConsensusState{}, 0, err
 	}
@@ -614,7 +600,7 @@ func (cc *CosmosProvider) QueryConsensusState(ctx context.Context, height int64)
 	count := 10_000
 
 	nextHeight := height + 1
-	nextVals, err := cc.ConsensusClient.GetValidators(ctx, &nextHeight, &page, &count)
+	nextVals, err := cc.RPCClient.Validators(ctx, &nextHeight, &page, &count)
 	if err != nil {
 		return &tmclient.ConsensusState{}, 0, err
 	}
@@ -784,11 +770,11 @@ func (cc *CosmosProvider) GenerateConnHandshakeProof(ctx context.Context, height
 		return nil, nil, nil, nil, clienttypes.Height{}, err
 	}
 
-	eg.Go(func() error {
-		var err error
-		consensusStateRes, err = cc.QueryClientConsensusState(ctx, height, clientId, clientState.GetLatestHeight())
-		return err
-	})
+	//eg.Go(func() error {
+	//	var err error
+	//	consensusStateRes, err = cc.QueryClientConsensusState(ctx, height, clientId, clientState.GetLatestHeight())
+	//	return err
+	//})
 	eg.Go(func() error {
 		var err error
 		connectionStateRes, err = cc.QueryConnection(ctx, height, connId)
@@ -1202,18 +1188,18 @@ func (cc *CosmosProvider) QueryPacketReceipt(ctx context.Context, height int64, 
 }
 
 func (cc *CosmosProvider) QueryLatestHeight(ctx context.Context) (int64, error) {
-	stat, err := cc.ConsensusClient.GetStatus(ctx)
+	stat, err := cc.RPCClient.Status(ctx)
 	if err != nil {
 		return -1, err
-	} else if stat.CatchingUp {
+	} else if stat.SyncInfo.CatchingUp {
 		return -1, fmt.Errorf("node at %s running chain %s not caught up", cc.PCfg.RPCAddr, cc.PCfg.ChainID)
 	}
-	return int64(stat.LatestBlockHeight), nil
+	return stat.SyncInfo.LatestBlockHeight, nil
 }
 
 // Query current node status
-func (cc *CosmosProvider) QueryStatus(ctx context.Context) (*cclient.Status, error) {
-	status, err := cc.ConsensusClient.GetStatus(ctx)
+func (cc *CosmosProvider) QueryStatus(ctx context.Context) (*coretypes.ResultStatus, error) {
+	status, err := cc.RPCClient.Status(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query node status: %w", err)
 	}
@@ -1221,58 +1207,42 @@ func (cc *CosmosProvider) QueryStatus(ctx context.Context) (*cclient.Status, err
 }
 
 // QueryDenomTrace takes a denom from IBC and queries the information about it
-func (cc *CosmosProvider) QueryDenomTrace(ctx context.Context, denom string) (*transfertypes.DenomTrace, error) {
-	transfers, err := transfertypes.NewQueryClient(cc).DenomTrace(ctx,
-		&transfertypes.QueryDenomTraceRequest{
-			Hash: denom,
-		})
-	if err != nil {
-		return nil, err
-	}
-
-	return transfers.DenomTrace, nil
+func (cc *CosmosProvider) QueryDenomTrace(ctx context.Context, denom string) (*transfertypes.Hop, error) {
+	//transfers, err := transfertypes.NewQueryClient(cc).DenomTrace(ctx,
+	//	&transfertypes.QueryDenomTraceRequest{
+	//		Hash: denom,
+	//	})
+	//if err != nil {
+	//	return nil, err
+	//}
+	return nil, nil
 }
 
 // QueryDenomTraces returns all the denom traces from a given chain
-func (cc *CosmosProvider) QueryDenomTraces(ctx context.Context, offset, limit uint64, height int64) ([]transfertypes.DenomTrace, error) {
-	qc := transfertypes.NewQueryClient(cc)
-	p := DefaultPageRequest()
-	transfers := []transfertypes.DenomTrace{}
-	for {
-		res, err := qc.DenomTraces(ctx,
-			&transfertypes.QueryDenomTracesRequest{
-				Pagination: p,
-			})
-
-		if err != nil || res == nil {
-			return nil, err
-		}
-
-		transfers = append(transfers, res.DenomTraces...)
-		next := res.GetPagination().GetNextKey()
-		if len(next) == 0 {
-			break
-		}
-
-		time.Sleep(PaginationDelay)
-		p.Key = next
-	}
-	return transfers, nil
-}
-
-func (cc *CosmosProvider) QueryDenomHash(ctx context.Context, trace string) (string, error) {
-	qc := transfertypes.NewQueryClient(cc)
-
-	req := &transfertypes.QueryDenomHashRequest{
-		Trace: trace,
-	}
-
-	resp, err := qc.DenomHash(ctx, req, nil)
-	if err != nil {
-		return "", err
-	}
-
-	return resp.Hash, nil
+func (cc *CosmosProvider) QueryDenomTraces(ctx context.Context, offset, limit uint64, height int64) ([]transfertypes.Hop, error) {
+	//qc := transfertypes.NewQueryClient(cc)
+	//p := DefaultPageRequest()
+	//transfers := []transfertypes.DenomTrace{}
+	//for {
+	//	res, err := qc.DenomTraces(ctx,
+	//		&transfertypes.QueryDenomTracesRequest{
+	//			Pagination: p,
+	//		})
+	//
+	//	if err != nil || res == nil {
+	//		return nil, err
+	//	}
+	//
+	//	transfers = append(transfers, res.DenomTraces...)
+	//	next := res.GetPagination().GetNextKey()
+	//	if len(next) == 0 {
+	//		break
+	//	}
+	//
+	//	time.Sleep(PaginationDelay)
+	//	p.Key = next
+	//}
+	return nil, nil
 }
 
 func (cc *CosmosProvider) QueryStakingParams(ctx context.Context) (*stakingtypes.Params, error) {

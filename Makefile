@@ -68,50 +68,6 @@ build-osmosis-docker:
 test:
 	@go test -mod=readonly -race ./...
 
-#? interchaintest: Run interchain TestRelayerInProcess tests
-interchaintest:
-	cd interchaintest && go test -race -v -run TestRelayerInProcess .
-
-#? interchaintest-docker: Run interchain TestRelayerDocker tests
-interchaintest-docker:
-	cd interchaintest && go test -race -v -run TestRelayerDocker .
-
-#? interchaintest-docker-events: Run interchain TestRelayerDockerEventProcessor tests
-interchaintest-docker-events:
-	cd interchaintest && go test -race -v -run TestRelayerDockerEventProcessor .
-
-#? interchaintest-docker-legacy: Run interchain TestRelayerDockerLegacyProcessor tests
-interchaintest-docker-legacy:
-	cd interchaintest && go test -race -v -run TestRelayerDockerLegacyProcessor .
-
-#? interchaintest-events: Run interchain TestRelayerEventProcessor tests
-interchaintest-events:
-	cd interchaintest && go test -race -v -run TestRelayerEventProcessor .
-
-#? interchaintest-legacy: Run interchain TestRelayerLegacyProcessor tests
-interchaintest-legacy:
-	cd interchaintest && go test -race -v -run TestRelayerLegacyProcessor .
-
-#? interchaintest-multiple: Run interchain TestRelayerMultiplePathsSingleProcess tests
-interchaintest-multiple:
-	cd interchaintest && go test -race -v -run TestRelayerMultiplePathsSingleProcess .
-
-#? interchaintest-misbehaviour: Run interchain TestRelayerMisbehaviourDetection tests
-interchaintest-misbehaviour:
-	cd interchaintest && go test -race -v -run TestRelayerMisbehaviourDetection .
-
-#? interchaintest-fee-middleware: Run interchain TestRelayerFeeMiddleware tests
-interchaintest-fee-middleware:
-	cd interchaintest && go test -race -v -run TestRelayerFeeMiddleware .
-
-#? interchaintest-fee-grant: Run interchain TestRelayerFeeGrant tests
-interchaintest-fee-grant:
-	cd interchaintest && go test -race -v -run TestRelayerFeeGrant .
-
-#? interchaintest-scenario: Run interchain TestScenario tests
-interchaintest-scenario: ## Scenario tests are suitable for simple networks of 1 validator and no full nodes. They test specific functionality.
-	cd interchaintest && go test -timeout 30m -race -v -run TestScenario ./...
-
 #? coverage: Generate and view test coverage report
 coverage:
 	@echo "viewing test coverage..."
@@ -145,7 +101,7 @@ build-gaia:
 .PHONY: two-chains test test-integration interchaintest install build lint coverage clean
 
 PACKAGE_NAME          := github.com/cosmos/relayer
-GOLANG_CROSS_VERSION  ?= v1.21.5
+GOLANG_CROSS_VERSION  ?= v1.22.5
 
 SYSROOT_DIR     ?= sysroots
 SYSROOT_ARCHIVE ?= sysroots.tar.bz2

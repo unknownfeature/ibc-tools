@@ -318,8 +318,6 @@ func (c ChainInfo) GetChainConfig(ctx context.Context, forceAdd, testnet bool, n
 		return nil, err
 	}
 
-	// select 2 healthy endpoints as backup
-	backupRpcs, err := c.GetBackupRPCEndpoints(ctx, forceAdd, rpc, 2)
 	if err != nil {
 		return nil, err
 	}
@@ -328,7 +326,6 @@ func (c ChainInfo) GetChainConfig(ctx context.Context, forceAdd, testnet bool, n
 		Key:              "default",
 		ChainID:          c.ChainID,
 		RPCAddr:          rpc,
-		BackupRPCAddrs:   backupRpcs,
 		AccountPrefix:    c.Bech32Prefix,
 		KeyringBackend:   "test",
 		GasAdjustment:    1.2,
