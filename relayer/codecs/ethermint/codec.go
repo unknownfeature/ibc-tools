@@ -1,11 +1,11 @@
 package ethermint
 
 import (
+	authtypes "cosmossdk.io/x/auth/types"
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/tx"
-	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	"github.com/cosmos/relayer/v2/relayer/ethermint"
 )
 

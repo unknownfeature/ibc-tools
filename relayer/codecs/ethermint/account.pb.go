@@ -4,8 +4,9 @@
 package ethermint
 
 import (
+	types "cosmossdk.io/x/auth/types"
 	fmt "fmt"
-	types "github.com/cosmos/cosmos-sdk/x/auth/types"
+	_ "github.com/cosmos/gogoproto
 	_ "github.com/cosmos/gogoproto/gogoproto"
 	proto "github.com/cosmos/gogoproto/proto"
 	io "io"
