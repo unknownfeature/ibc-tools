@@ -12,9 +12,9 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/cosmos/relayer/v2/relayer/chains/cosmos"
-	"github.com/cosmos/relayer/v2/relayer/provider"
 	"github.com/spf13/viper"
+	"github.com/unknownfeature/ibc-tools/relayer/chains/cosmos"
+	"github.com/unknownfeature/ibc-tools/relayer/provider"
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
 )

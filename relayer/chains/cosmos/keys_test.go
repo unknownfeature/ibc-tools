@@ -4,9 +4,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/cosmos/relayer/v2/relayer/chains/cosmos"
-	"github.com/cosmos/relayer/v2/relayer/provider"
 	"github.com/stretchr/testify/require"
+	"github.com/unknownfeature/ibc-tools/chains/cosmos"
+	"github.com/unknownfeature/ibc-tools/relayer/provider"
 	"go.uber.org/zap"
 )
 

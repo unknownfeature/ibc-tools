@@ -12,8 +12,8 @@ import (
 	clienttypes "github.com/cosmos/ibc-go/v9/modules/core/02-client/types"
 	conntypes "github.com/cosmos/ibc-go/v9/modules/core/03-connection/types"
 	chantypes "github.com/cosmos/ibc-go/v9/modules/core/04-channel/types"
-	"github.com/cosmos/relayer/v2/relayer/processor"
-	"github.com/cosmos/relayer/v2/relayer/provider"
+	"github.com/unknownfeature/ibc-tools/relayer/processor"
+	"github.com/unknownfeature/ibc-tools/relayer/provider"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )

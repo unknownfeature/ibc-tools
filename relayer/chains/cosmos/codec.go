@@ -5,6 +5,7 @@ import (
 	"cosmossdk.io/x/auth/tx"
 	authz "cosmossdk.io/x/authz/module"
 	"cosmossdk.io/x/bank"
+	"cosmossdk.io/x/crisis"
 	"cosmossdk.io/x/distribution"
 	feegrant "cosmossdk.io/x/feegrant/module"
 	"cosmossdk.io/x/gov"
@@ -12,7 +13,7 @@ import (
 	"cosmossdk.io/x/mint"
 	"cosmossdk.io/x/params"
 	paramsclient "cosmossdk.io/x/params/client"
-	"cosmossdk.io/x/slashingg"
+	"cosmossdk.io/x/slashing"
 	"cosmossdk.io/x/staking"
 	"cosmossdk.io/x/tx/signing"
 	"cosmossdk.io/x/upgrade"
@@ -22,17 +23,16 @@ import (
 	"github.com/cosmos/cosmos-sdk/codec/types"
 	"github.com/cosmos/cosmos-sdk/std"
 	"github.com/cosmos/cosmos-sdk/types/module"
-	"github.com/cosmos/cosmos-sdk/x/crisis"
 	"github.com/cosmos/gogoproto/proto"
 	"github.com/cosmos/ibc-go/modules/capability"
 	ibcfee "github.com/cosmos/ibc-go/v9/modules/apps/29-fee"
 	"github.com/cosmos/ibc-go/v9/modules/apps/transfer"
 	ibc "github.com/cosmos/ibc-go/v9/modules/core"
 
-	cosmosmodule "github.com/cosmos/relayer/v2/relayer/chains/cosmos/module"
-	"github.com/cosmos/relayer/v2/relayer/chains/cosmos/stride"
-	ethermintcodecs "github.com/cosmos/relayer/v2/relayer/codecs/ethermint"
-	injectivecodecs "github.com/cosmos/relayer/v2/relayer/codecs/injective"
+	cosmosmodule "github.com/unknownfeature/ibc-tools/relayer/chains/cosmos/module"
+	"github.com/unknownfeature/ibc-tools/relayer/chains/cosmos/stride"
+	ethermintcodecs "github.com/unknownfeature/ibc-tools/relayer/codecs/ethermint"
+	injectivecodecs "github.com/unknownfeature/ibc-tools/relayer/codecs/injective"
 )
 
 var ModuleBasics = []module.AppModuleBasic{

@@ -5,7 +5,7 @@ import (
 	"sort"
 
 	chantypes "github.com/cosmos/ibc-go/v9/modules/core/04-channel/types"
-	"github.com/cosmos/relayer/v2/relayer/provider"
+	"github.com/unknownfeature/ibc-tools/relayer/provider"
 	"go.uber.org/zap/zapcore"
 )
 

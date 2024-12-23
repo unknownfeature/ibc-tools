@@ -16,7 +16,7 @@ import (
 	grpctypes "github.com/cosmos/cosmos-sdk/types/grpc"
 	"github.com/cosmos/cosmos-sdk/types/tx"
 	gogogrpc "github.com/cosmos/gogoproto/grpc"
-	"github.com/cosmos/relayer/v2/relayer/provider"
+	"github.com/unknownfeature/ibc-tools/relayer/provider"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/encoding"

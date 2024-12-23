@@ -10,7 +10,7 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/crypto/hd"
 	clienttypes "github.com/cosmos/ibc-go/v9/modules/core/02-client/types"
-	"github.com/cosmos/relayer/v2/relayer/provider"
+	"github.com/unknownfeature/ibc-tools/relayer/provider"
 	"go.uber.org/zap"
 )
 

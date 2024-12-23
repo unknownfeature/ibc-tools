@@ -20,9 +20,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/cosmos/relayer/v2/relayer"
-	"github.com/cosmos/relayer/v2/relayer/chains/cosmos"
-	"github.com/cosmos/relayer/v2/relayer/provider"
+	"github.com/unknownfeature/ibc-tools/relayer"
+	"github.com/unknownfeature/ibc-tools/relayer/chains/cosmos"
+	"github.com/unknownfeature/ibc-tools/relayer/provider"
 	"gopkg.in/yaml.v3"
 	"reflect"
 )

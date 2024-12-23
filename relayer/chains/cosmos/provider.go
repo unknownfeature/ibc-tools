@@ -19,9 +19,9 @@ import (
 	"github.com/cosmos/gogoproto/proto"
 	commitmenttypes "github.com/cosmos/ibc-go/v9/modules/core/23-commitment/types"
 	cwrapper "github.com/cosmos/relayer/v2/client"
-	"github.com/cosmos/relayer/v2/relayer/codecs/ethermint"
-	"github.com/cosmos/relayer/v2/relayer/provider"
 	"github.com/strangelove-ventures/cometbft-client/client"
+	"github.com/unknownfeature/ibc-tools/codecs/ethermint"
+	"github.com/unknownfeature/ibc-tools/relayer/provider"
 	"go.uber.org/zap"
 )
 

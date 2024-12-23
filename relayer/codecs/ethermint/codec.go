@@ -6,7 +6,7 @@ import (
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/tx"
-	"github.com/cosmos/relayer/v2/relayer/ethermint"
+	"github.com/unknownfeature/ibc-tools/ethermint"
 )
 
 // RegisterInterfaces register the Ethermint key concrete types.
