@@ -41,8 +41,10 @@ func NewRelayer(ctx context.Context, cdc *codec.ProtoCodec, props *Props) *Relay
 	}
 	return r
 }
-func (r *Relayer) updateCpClient(height int64, source, dest *client.ChainClient) {
+func (r *Relayer) updateChains(height int64, source, dest *client.ChainClient) {
 	go func() { source.MaybeUpdateClient(height, dest.IBCHeader) }()
+	go func() { dest.MaybeUpdateChainState(height) }()
+
 }
 
 func (r *Relayer) ChanOpenInit() {
@@ -63,7 +65,7 @@ func (r *Relayer) ChanOpenInit() {
 
 	respCb := func(resp *provider.RelayerTxResponse) {
 		r.path.Source().SetChanId(utils.ParseChannelIDFromEvents(resp.Events))
-		r.updateCpClient(resp.Height, r.dest, r.source)
+		r.updateChains(resp.Height, r.dest, r.source)
 		fmt.Println("channel init")
 	}
 	r.source.SendMessage(r.context, msg, "init channel", respCb)
@@ -95,7 +97,7 @@ func (r *Relayer) ChanOpenTry() {
 
 	respCb := func(resp *provider.RelayerTxResponse) {
 		r.path.Dest().SetChanId(utils.ParseChannelIDFromEvents(resp.Events))
-		r.updateCpClient(resp.Height, r.source, r.dest)
+		r.updateChains(resp.Height, r.source, r.dest)
 		fmt.Println("channel tried")
 	}
 	r.dest.MaybePrependUpdateClientAndSend(r.source.Height(), r.source.IBCHeader, msgSupplier.Get, respCb)
@@ -123,7 +125,7 @@ func (r *Relayer) ChanOpenAck() {
 		})
 
 	respCb := func(resp *provider.RelayerTxResponse) {
-		r.updateCpClient(resp.Height, r.dest, r.source)
+		r.updateChains(resp.Height, r.dest, r.source)
 		fmt.Println("channel acked")
 	}
 	r.source.MaybePrependUpdateClientAndSend(r.dest.Height(), r.dest.IBCHeader, msgSupplier.Get, respCb)
@@ -148,7 +150,7 @@ func (r *Relayer) ChanOpenConfirm() {
 		})
 
 	respCb := func(resp *provider.RelayerTxResponse) {
-		r.updateCpClient(resp.Height, r.source, r.dest)
+		r.updateChains(resp.Height, r.source, r.dest)
 		fmt.Println("channel confirmed")
 	}
 	r.dest.MaybePrependUpdateClientAndSend(r.source.Height(), r.source.IBCHeader, msgSupplier.Get, respCb)
@@ -177,7 +179,9 @@ func (r *Relayer) ChanUpgradeTry() {
 		})
 
 	respCb := func(resp *provider.RelayerTxResponse) {
-		r.updateCpClient(resp.Height, r.source, r.dest)
+		r.path.Dest().SetUpgrade(true)
+		r.path.Source().SetUpgrade(true)
+		r.updateChains(resp.Height, r.source, r.dest)
 		fmt.Println("upgrade tried acked")
 	}
 	r.dest.MaybePrependUpdateClientAndSend(r.source.Height(), r.source.IBCHeader, msgSupplier.Get, respCb)
@@ -205,7 +209,7 @@ func (r *Relayer) ChanUpgradeAck() {
 		})
 
 	respCb := func(resp *provider.RelayerTxResponse) {
-		r.updateCpClient(resp.Height, r.dest, r.source)
+		r.updateChains(resp.Height, r.dest, r.source)
 		fmt.Println("channel upgrade acked")
 	}
 
@@ -234,7 +238,7 @@ func (r *Relayer) ChanUpgradeConfirm() {
 		})
 
 	respCb := func(resp *provider.RelayerTxResponse) {
-		r.updateCpClient(resp.Height, r.source, r.dest)
+		r.updateChains(resp.Height, r.source, r.dest)
 		fmt.Println("upgrade confirmed")
 	}
 
@@ -263,7 +267,9 @@ func (r *Relayer) ChanUpgradeOpen() {
 		})
 
 	respCb := func(resp *provider.RelayerTxResponse) {
-		r.updateCpClient(resp.Height, r.dest, r.source)
+		r.path.Dest().SetUpgrade(false)
+		r.path.Source().SetUpgrade(false)
+		r.updateChains(resp.Height, r.dest, r.source)
 		fmt.Println("channel upgrade opened")
 	}
 
