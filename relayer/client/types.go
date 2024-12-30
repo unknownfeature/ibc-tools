@@ -2,7 +2,6 @@ package client
 
 import (
 	"context"
-	"fmt"
 	"github.com/cosmos/cosmos-sdk/codec"
 	clienttypes "github.com/cosmos/ibc-go/v8/modules/core/02-client/types"
 	chantypes "github.com/cosmos/ibc-go/v8/modules/core/04-channel/types"
@@ -12,19 +11,20 @@ import (
 	"github.com/cosmos/relayer/v2/relayer/chains/cosmos"
 	"github.com/cosmos/relayer/v2/relayer/provider"
 	"main/utils"
+	"math"
 	"sync"
 )
 
 type ChainClient struct {
-	address        string
-	chain          *cosmos.CosmosProvider
-	clientUpdates  map[int64]*clienttypes.MsgUpdateClient
-	lock           *sync.Mutex
-	ctx            context.Context
-	pathEnd        *PathEnd
-	cdc            codec.Codec
-	statePerHeight map[int64]*ChainState
-	maxHeight      int64
+	address          string
+	chain            *cosmos.CosmosProvider
+	lock             *sync.Mutex
+	ctx              context.Context
+	pathEnd          *PathEnd
+	cdc              codec.Codec
+	latestChainState *ChainState
+	latestHeight     int64
+	latestCpHeight   int64
 }
 
 type ChainState struct {
@@ -70,53 +70,49 @@ func NewChainClient(ctx context.Context, cdc *codec.ProtoCodec, chain *cosmos.Co
 	utils.HandleError(err)
 	utils.HandleError(err)
 	cd := &ChainClient{
-		address:        addr,
-		chain:          chain,
-		statePerHeight: make(map[int64]*ChainState),
-		clientUpdates:  make(map[int64]*clienttypes.MsgUpdateClient),
-		ctx:            ctx,
-		pathEnd:        pathEnd,
-		cdc:            cdc,
-		lock:           &sync.Mutex{},
+		address: addr,
+		chain:   chain,
+		ctx:     ctx,
+		pathEnd: pathEnd,
+		cdc:     cdc,
+		lock:    &sync.Mutex{},
 	}
 	utils.HandleError(cd.updateToLatest())
-	go cd.keepUpToDate()
 	return cd
 }
 
-func (cd *ChainClient) keepUpToDate() {
-	for {
-		err := cd.updateToLatest()
-		if err != nil {
-			fmt.Println("errro updating the chain, continue", err.Error())
-		}
-	}
-}
 func (cd *ChainClient) updateToLatest() error {
 	latestHeight, err := cd.chain.QueryLatestHeight(cd.ctx)
 
 	if err != nil {
 		return err
 	}
-	cd.pathEnd.SetHeight(latestHeight)
 	cd.MaybeUpdateChainState(latestHeight)
 	return nil
 }
-
-func (cd *ChainClient) MaybePrependUpdateClientAndSend(height int64, cpIBCHeaderSupplier func(int64) provider.IBCHeader, messageSupplier func() provider.RelayerMessage) *provider.RelayerTxResponse {
+func (cd *ChainClient) Height() int64 {
 	cd.lock.Lock()
 	defer cd.lock.Unlock()
-	if _, ok := cd.clientUpdates[height]; ok {
-		return cd.SendMessage(cd.ctx, messageSupplier(), "")
+	return cd.latestHeight
+
+}
+func (cd *ChainClient) MaybePrependUpdateClientAndSend(height int64, cpIBCHeaderSupplier func(int64) provider.IBCHeader, messageSupplier func() provider.RelayerMessage, cb func(*provider.RelayerTxResponse)) {
+	cuMsg := cd.createUpdateClientMsg(height, cpIBCHeaderSupplier)
+
+	if cuMsg == nil {
+		cd.SendMessage(cd.ctx, messageSupplier(), "", cb)
 	} else {
-		defer func() { cd.clientUpdates[height] = nil }()
-		return cd.SendMessages(cd.ctx, []provider.RelayerMessage{cd.createUpdateClientMsg(height, cpIBCHeaderSupplier), messageSupplier()}, "")
+		cd.SendMessages(cd.ctx, []provider.RelayerMessage{cuMsg, messageSupplier()}, "", cb)
 	}
 }
 
 func (cd *ChainClient) createUpdateClientMsg(height int64, cpIBCHeaderSupplier func(int64) provider.IBCHeader) provider.RelayerMessage {
-
-	chainState := cd.getChainStateForHeight(cd.pathEnd.height)
+	cd.lock.Lock()
+	defer cd.lock.Unlock()
+	if height <= cd.latestCpHeight {
+		return nil
+	}
+	chainState := cd.latestChainState
 	trustedHeader := utils.NewFuture[provider.IBCHeader](func() provider.IBCHeader {
 		return cpIBCHeaderSupplier(int64(chainState.latestClientState.LatestHeight.RevisionHeight))
 	})
@@ -127,18 +123,17 @@ func (cd *ChainClient) createUpdateClientMsg(height int64, cpIBCHeaderSupplier f
 	utils.HandleError(err)
 	cuMsg, err := cd.chain.MsgUpdateClient(cd.pathEnd.clientId, hdr)
 	utils.HandleError(err)
+
+	cd.latestCpHeight = height
 	return cuMsg
 }
 
 func (cd *ChainClient) MaybeUpdateClient(height int64, cpIBCHeaderSupplier func(int64) provider.IBCHeader) {
-	cd.lock.Lock()
-	defer cd.lock.Unlock()
 
-	if _, ok := cd.clientUpdates[height]; !ok {
-		msg := cd.createUpdateClientMsg(height, cpIBCHeaderSupplier)
+	msg := cd.createUpdateClientMsg(height, cpIBCHeaderSupplier)
+	if msg != nil {
 		_, _, err := cd.chain.SendMessage(cd.ctx, msg, "")
 		utils.HandleError(err)
-		cd.clientUpdates[height] = nil
 	}
 }
 
@@ -152,18 +147,22 @@ func (cd *ChainClient) IBCHeader(height int64) provider.IBCHeader {
 }
 
 func (cd *ChainClient) MaybeUpdateChainState(newHeight int64) {
-	cd.lock.Lock()
-	defer cd.lock.Unlock()
+
 	cd.maybeUpdateChainState(newHeight)
 }
 
 func (cd *ChainClient) maybeUpdateChainState(newHeight int64) {
-	if _, ok := cd.statePerHeight[newHeight]; ok {
-		if cd.statePerHeight[newHeight].chanProofData != nil {
-			return
-		}
+	cd.lock.Lock()
+	defer cd.lock.Unlock()
+
+	if newHeight < cd.latestHeight {
+		return
+	}
+	if newHeight == cd.latestHeight && cd.latestChainState.chanProofData != nil {
+		return
 	}
 
+	// todo generalize this
 	chanProofSupplier := utils.NewFuture[*ProofData[chantypes.Channel]](func() *ProofData[chantypes.Channel] {
 		if cd.pathEnd.ChanId() == "" {
 			return nil
@@ -203,36 +202,35 @@ func (cd *ChainClient) maybeUpdateChainState(newHeight int64) {
 		}
 		return st.(*tmclient.ClientState)
 	})
-	if newHeight > cd.maxHeight {
-		cd.maxHeight = newHeight
-	}
-	cd.statePerHeight[newHeight] = &ChainState{latestClientState: clientStateSupplier.Get(), chanProofData: chanProofSupplier.Get(), upgradeProofData: upgradeProofSupplier.Get(), height: newHeight}
+	cd.latestChainState = &ChainState{latestClientState: clientStateSupplier.Get(), chanProofData: chanProofSupplier.Get(), upgradeProofData: upgradeProofSupplier.Get(), height: newHeight}
+	cd.latestHeight = int64(math.Max(float64(newHeight), float64(cd.latestHeight)))
+
 }
 
 func (cd *ChainClient) GetChainStateForHeight(height int64) *ChainState {
-	cd.lock.Lock()
-	defer cd.lock.Unlock()
 	return cd.getChainStateForHeight(height)
 }
 
 func (cd *ChainClient) getChainStateForHeight(height int64) *ChainState {
 	cd.maybeUpdateChainState(height)
-	return cd.statePerHeight[height]
+	cd.lock.Lock()
+	defer cd.lock.Unlock()
+	return cd.latestChainState
 
 }
 
-func (cd *ChainClient) SendMessage(ctx context.Context, msg provider.RelayerMessage, memo string) *provider.RelayerTxResponse {
+func (cd *ChainClient) SendMessage(ctx context.Context, msg provider.RelayerMessage, memo string, cb func(*provider.RelayerTxResponse)) {
 	resp, _, err := cd.chain.SendMessages(ctx, []provider.RelayerMessage{msg}, memo)
 	utils.HandleError(err)
-	cd.pathEnd.SetHeight(resp.Height)
-	return resp
+	go cd.maybeUpdateChainState(resp.Height)
+	cb(resp)
 }
 
-func (cd *ChainClient) SendMessages(ctx context.Context, msgs []provider.RelayerMessage, memo string) *provider.RelayerTxResponse {
+func (cd *ChainClient) SendMessages(ctx context.Context, msgs []provider.RelayerMessage, memo string, cb func(*provider.RelayerTxResponse)) {
 	resp, _, err := cd.chain.SendMessages(ctx, msgs, memo)
 	utils.HandleError(err)
-	cd.pathEnd.SetHeight(resp.Height)
-	return resp
+	go cd.maybeUpdateChainState(resp.Height)
+	cb(resp)
 }
 
 func (cd *ChainClient) Address() string {
@@ -244,7 +242,6 @@ type PathEnd struct {
 	connId   string
 	port     string
 	chanId   string
-	height   int64
 	lock     *sync.Mutex
 }
 
@@ -297,16 +294,6 @@ func (pe *PathEnd) SetChanId(chanId string) {
 	pe.lock.Lock()
 	defer pe.lock.Unlock()
 	pe.chanId = chanId
-}
-func (pe *PathEnd) SetHeight(height int64) {
-	pe.lock.Lock()
-	defer pe.lock.Unlock()
-	pe.height = height
-}
-func (pe *PathEnd) Height() int64 {
-	pe.lock.Lock()
-	defer pe.lock.Unlock()
-	return pe.height
 }
 
 type Path struct {

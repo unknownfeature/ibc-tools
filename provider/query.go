@@ -28,11 +28,11 @@ func QueryChannels(ctx context.Context, cp *cosmos.CosmosProvider, nextKey []byt
 	return res, nil
 }
 
-func QueryChannel(ctx context.Context, cp *cosmos.CosmosProvider, port, chanId string) (*chantypes.Channel, int64) {
+func QueryChannel(ctx context.Context, cp *cosmos.CosmosProvider, port, chanId string) *chantypes.Channel {
 	height, err := cp.QueryLatestHeight(ctx)
 	utils.HandleError(err)
 	res, err := cp.QueryChannel(ctx, height, chanId, port)
 	utils.HandleError(err)
 
-	return res.Channel, height
+	return res.Channel
 }
