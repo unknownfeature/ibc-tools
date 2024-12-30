@@ -16,14 +16,15 @@ import (
 )
 
 type ChainClient struct {
-	address             string
-	chain               *cosmos.CosmosProvider
-	lock                *sync.Mutex
-	ctx                 context.Context
-	pathEnd             *PathEnd
-	cdc                 codec.Codec
-	latestCpHeight      int64
-	chainStatePerHeight map[int64]*ChainState
+	address                string
+	chain                  *cosmos.CosmosProvider
+	lock                   *sync.Mutex
+	ctx                    context.Context
+	pathEnd                *PathEnd
+	cdc                    codec.Codec
+	latestCpHeight         int64
+	chainStatePerHeight    map[int64]*ChainState
+	processedClientUpdates map[int64]bool
 }
 
 type ChainState struct {
@@ -69,13 +70,14 @@ func NewChainClient(ctx context.Context, cdc *codec.ProtoCodec, chain *cosmos.Co
 	utils.HandleError(err)
 	utils.HandleError(err)
 	cd := &ChainClient{
-		address:             addr,
-		chain:               chain,
-		ctx:                 ctx,
-		pathEnd:             pathEnd,
-		chainStatePerHeight: make(map[int64]*ChainState),
-		cdc:                 cdc,
-		lock:                &sync.Mutex{},
+		address:                addr,
+		chain:                  chain,
+		ctx:                    ctx,
+		pathEnd:                pathEnd,
+		chainStatePerHeight:    make(map[int64]*ChainState),
+		cdc:                    cdc,
+		lock:                   &sync.Mutex{},
+		processedClientUpdates: make(map[int64]bool),
 	}
 	utils.HandleError(cd.updateToLatest())
 	return cd
@@ -108,15 +110,15 @@ func (cd *ChainClient) MaybePrependUpdateClientAndSend(height int64, cpIBCHeader
 
 func (cd *ChainClient) createUpdateClientMsgAndSend(height int64, cpIBCHeaderSupplier func(int64) provider.IBCHeader, msgConsumer func(provider.RelayerMessage)) {
 	cd.lock.Lock()
-	if height <= cd.latestCpHeight {
-		cd.lock.Unlock()
+	defer cd.lock.Unlock()
+	if _, ok := cd.processedClientUpdates[height]; ok || height <= cd.latestCpHeight {
+
 		msgConsumer(nil)
 		return
 	}
 
 	// todo cache
 	chainState := cd.chainStatePerHeight[cd.pathEnd.Height()]
-	cd.lock.Unlock()
 	trustedHeader := utils.NewFuture[provider.IBCHeader](func() provider.IBCHeader {
 		return cpIBCHeaderSupplier(int64(chainState.latestClientState.LatestHeight.RevisionHeight))
 	})
@@ -127,9 +129,8 @@ func (cd *ChainClient) createUpdateClientMsgAndSend(height int64, cpIBCHeaderSup
 	utils.HandleError(err)
 	cuMsg, err := cd.chain.MsgUpdateClient(cd.pathEnd.clientId, hdr)
 	utils.HandleError(err)
-	cd.lock.Lock()
 	cd.latestCpHeight = height
-	cd.lock.Unlock()
+	cd.processedClientUpdates[height] = true
 	msgConsumer(cuMsg)
 }
 
