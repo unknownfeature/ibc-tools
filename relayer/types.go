@@ -8,6 +8,7 @@ import (
 	"github.com/cosmos/relayer/v2/relayer/chains/cosmos"
 	"github.com/cosmos/relayer/v2/relayer/provider"
 	"main/relayer/client"
+	"main/relayer/client/path"
 	"main/utils"
 	"sync"
 )
@@ -16,7 +17,7 @@ type Relayer struct {
 	source               *client.ChainClient
 	dest                 *client.ChainClient
 	codec                *codec.ProtoCodec
-	path                 *client.Path
+	path                 *path.Path
 	context              context.Context
 	version              string
 	sourceUpdatedHeights *sync.Map
@@ -26,7 +27,7 @@ type Relayer struct {
 type Props struct {
 	SourceProvider *cosmos.CosmosProvider
 	DestProvider   *cosmos.CosmosProvider
-	Path           *client.Path
+	Path           *path.Path
 	Version        string
 }
 

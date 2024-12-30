@@ -10,6 +10,8 @@ import (
 	tmclient "github.com/cosmos/ibc-go/v8/modules/light-clients/07-tendermint"
 	"github.com/cosmos/relayer/v2/relayer/chains/cosmos"
 	"github.com/cosmos/relayer/v2/relayer/provider"
+	"main/relayer/client/path"
+	"main/relayer/client/state"
 	"main/utils"
 	"math"
 	"sync"
@@ -20,51 +22,14 @@ type ChainClient struct {
 	chain                  *cosmos.CosmosProvider
 	lock                   *sync.Mutex
 	ctx                    context.Context
-	pathEnd                *PathEnd
+	pathEnd                *path.PathEnd
 	cdc                    codec.Codec
 	latestCpHeight         int64
-	chainStatePerHeight    map[int64]*ChainState
+	chainStatePerHeight    map[int64]*state.ChainState
 	processedClientUpdates map[int64]bool
 }
 
-type ChainState struct {
-	height            int64
-	chanProofData     *ProofData[chantypes.Channel]
-	upgradeProofData  *ProofData[chantypes.Upgrade]
-	latestClientState *tmclient.ClientState
-}
-
-func (cs *ChainState) ChanProofData() *ProofData[chantypes.Channel] {
-	return cs.chanProofData
-}
-
-func (cs *ChainState) UpgradeProofData() *ProofData[chantypes.Upgrade] {
-	return cs.upgradeProofData
-}
-
-func (cs *ChainState) LatestClientState() *tmclient.ClientState {
-	return cs.latestClientState
-}
-
-type ProofData[T any] struct {
-	proof  []byte
-	height clienttypes.Height
-	val    *T
-}
-
-func (d *ProofData[T]) Proof() []byte {
-	return d.proof
-}
-
-func (d *ProofData[T]) Height() clienttypes.Height {
-	return d.height
-}
-
-func (d *ProofData[T]) Val() *T {
-	return d.val
-}
-
-func NewChainClient(ctx context.Context, cdc *codec.ProtoCodec, chain *cosmos.CosmosProvider, pathEnd *PathEnd) *ChainClient {
+func NewChainClient(ctx context.Context, cdc *codec.ProtoCodec, chain *cosmos.CosmosProvider, pathEnd *path.PathEnd) *ChainClient {
 
 	addr, err := chain.Address()
 	utils.HandleError(err)
@@ -74,7 +39,7 @@ func NewChainClient(ctx context.Context, cdc *codec.ProtoCodec, chain *cosmos.Co
 		chain:                  chain,
 		ctx:                    ctx,
 		pathEnd:                pathEnd,
-		chainStatePerHeight:    make(map[int64]*ChainState),
+		chainStatePerHeight:    make(map[int64]*state.ChainState),
 		cdc:                    cdc,
 		lock:                   &sync.Mutex{},
 		processedClientUpdates: make(map[int64]bool),
@@ -127,7 +92,7 @@ func (cd *ChainClient) createUpdateClientMsgAndSend(height int64, cpIBCHeaderSup
 	})
 	hdr, err := cd.chain.MsgUpdateClientHeader(latestHeader.Get(), chainState.latestClientState.LatestHeight, trustedHeader.Get())
 	utils.HandleError(err)
-	cuMsg, err := cd.chain.MsgUpdateClient(cd.pathEnd.clientId, hdr)
+	cuMsg, err := cd.chain.MsgUpdateClient(cd.pathEnd.ClientId(), hdr)
 	utils.HandleError(err)
 	cd.latestCpHeight = height
 	cd.processedClientUpdates[height] = true
@@ -159,12 +124,12 @@ func (cd *ChainClient) MaybeUpdateChainState(newHeight int64) {
 	cd.maybeUpdateChainState(newHeight)
 }
 
-func (cd *ChainClient) maybeUpdateChainState(newHeight int64) *ChainState {
+func (cd *ChainClient) maybeUpdateChainState(newHeight int64) *state.ChainState {
 	cd.lock.Lock()
 	defer cd.lock.Unlock()
 
 	// todo generalize this
-	chanProofSupplier := utils.NewFuture[*ProofData[chantypes.Channel]](func() *ProofData[chantypes.Channel] {
+	chanProofSupplier := utils.NewFuture[*state.ProofData[chantypes.Channel]](func() *state.ProofData[chantypes.Channel] {
 		if cd.pathEnd.ChanId() == "" {
 			return nil
 		}
@@ -177,10 +142,10 @@ func (cd *ChainClient) maybeUpdateChainState(newHeight int64) *ChainState {
 		}
 		theChannel := chantypes.Channel{}
 		utils.HandleError(cd.cdc.Unmarshal(val, &theChannel))
-		return &ProofData[chantypes.Channel]{val: &theChannel, proof: proof, height: proofHeight}
+		return &state.ProofData[chantypes.Channel]{val: &theChannel, proof: proof, height: proofHeight}
 	})
 
-	upgradeProofSupplier := utils.NewFuture[*ProofData[chantypes.Upgrade]](func() *ProofData[chantypes.Upgrade] {
+	upgradeProofSupplier := utils.NewFuture[*state.ProofData[chantypes.Upgrade]](func() *state.ProofData[chantypes.Upgrade] {
 		if !cd.pathEnd.Upgrade() {
 			return nil
 		}
@@ -194,27 +159,27 @@ func (cd *ChainClient) maybeUpdateChainState(newHeight int64) *ChainState {
 		theUpgrade := chantypes.Upgrade{}
 
 		utils.HandleError(cd.cdc.Unmarshal(val, &theUpgrade))
-		return &ProofData[chantypes.Upgrade]{val: &theUpgrade, proof: proof, height: proofHeight}
+		return &state.ProofData[chantypes.Upgrade]{val: &theUpgrade, proof: proof, height: proofHeight}
 	})
 	clientStateSupplier := utils.NewFuture[*tmclient.ClientState](func() *tmclient.ClientState {
 		var st ibcexported.ClientState
 		var err error
-		for st, err = cd.chain.QueryClientState(cd.ctx, newHeight+1, cd.pathEnd.clientId); err != nil; {
-			st, err = cd.chain.QueryClientState(cd.ctx, newHeight+1, cd.pathEnd.clientId)
+		for st, err = cd.chain.QueryClientState(cd.ctx, newHeight+1, cd.pathEnd.ClientId()); err != nil; {
+			st, err = cd.chain.QueryClientState(cd.ctx, newHeight+1, cd.pathEnd.ClientId())
 		}
 		return st.(*tmclient.ClientState)
 	})
 	cd.pathEnd.SetHeight(int64(math.Max(float64(newHeight), float64(cd.pathEnd.Height()))))
-	theState := &ChainState{latestClientState: clientStateSupplier.Get(), chanProofData: chanProofSupplier.Get(), upgradeProofData: upgradeProofSupplier.Get(), height: newHeight}
+	theState := &state.ChainState{latestClientState: clientStateSupplier.Get(), chanProofData: chanProofSupplier.Get(), upgradeProofData: upgradeProofSupplier.Get(), height: newHeight}
 	cd.chainStatePerHeight[newHeight] = theState
 	return theState
 }
 
-func (cd *ChainClient) GetChainStateForHeight(height int64) *ChainState {
+func (cd *ChainClient) GetChainStateForHeight(height int64) *state.ChainState {
 	return cd.getChainStateForHeight(height)
 }
 
-func (cd *ChainClient) getChainStateForHeight(height int64) *ChainState {
+func (cd *ChainClient) getChainStateForHeight(height int64) *state.ChainState {
 	return cd.maybeUpdateChainState(height)
 
 }
@@ -235,124 +200,4 @@ func (cd *ChainClient) SendMessages(ctx context.Context, msgs []provider.Relayer
 
 func (cd *ChainClient) Address() string {
 	return cd.address
-}
-
-type PathEnd struct {
-	clientId string
-	connId   string
-	port     string
-	chanId   string
-	upgrade  bool
-	height   int64
-	lock     *sync.Mutex
-}
-
-func NewPathEnd(client, port, connection, channel string, upgrade bool) *PathEnd {
-	return &PathEnd{
-		lock:     new(sync.Mutex),
-		port:     port,
-		connId:   connection,
-		clientId: client,
-		chanId:   channel,
-		upgrade:  upgrade,
-	}
-}
-
-func (pe *PathEnd) Height() int64 {
-	pe.lock.Lock()
-	defer pe.lock.Unlock()
-
-	return pe.height
-}
-
-func (pe *PathEnd) SetHeight(height int64) {
-	pe.lock.Lock()
-	defer pe.lock.Unlock()
-	pe.height = height
-}
-func (pe *PathEnd) ClientId() string {
-
-	pe.lock.Lock()
-	defer pe.lock.Unlock()
-
-	return pe.clientId
-}
-func (pe *PathEnd) SetClientId(clientId string) {
-	pe.lock.Lock()
-	defer pe.lock.Unlock()
-	pe.clientId = clientId
-}
-func (pe *PathEnd) ConnId() string {
-	pe.lock.Lock()
-	defer pe.lock.Unlock()
-	return pe.connId
-}
-func (pe *PathEnd) SetConnId(connId string) {
-	pe.lock.Lock()
-	defer pe.lock.Unlock()
-	pe.connId = connId
-}
-func (pe *PathEnd) Port() string {
-	pe.lock.Lock()
-	defer pe.lock.Unlock()
-	return pe.port
-}
-func (pe *PathEnd) SetPort(port string) {
-	pe.lock.Lock()
-	defer pe.lock.Unlock()
-	pe.port = port
-}
-func (pe *PathEnd) ChanId() string {
-	pe.lock.Lock()
-	defer pe.lock.Unlock()
-	return pe.chanId
-}
-func (pe *PathEnd) SetChanId(chanId string) {
-	pe.lock.Lock()
-	defer pe.lock.Unlock()
-	pe.chanId = chanId
-}
-
-func (pe *PathEnd) Upgrade() bool {
-	pe.lock.Lock()
-	defer pe.lock.Unlock()
-	return pe.upgrade
-}
-
-func (pe *PathEnd) SetUpgrade(upgrade bool) {
-	pe.lock.Lock()
-	defer pe.lock.Unlock()
-	pe.upgrade = upgrade
-}
-
-type Path struct {
-	source *PathEnd
-	dest   *PathEnd
-}
-
-type Props struct {
-	SourceChannel    string
-	SourceClient     string
-	SourcePort       string
-	SourceConnection string
-	SourceUpgrade    bool
-	DestChannel      string
-	DestClient       string
-	DestPort         string
-	DestConnection   string
-	DestUpgrade      bool
-}
-
-func NewPath(props *Props) *Path {
-	return &Path{
-		source: NewPathEnd(props.SourceClient, props.SourcePort, props.SourceConnection, props.SourceChannel, props.SourceUpgrade),
-		dest:   NewPathEnd(props.DestClient, props.DestPort, props.DestConnection, props.DestChannel, props.DestUpgrade),
-	}
-}
-
-func (p *Path) Source() *PathEnd {
-	return p.source
-}
-func (p *Path) Dest() *PathEnd {
-	return p.dest
 }
