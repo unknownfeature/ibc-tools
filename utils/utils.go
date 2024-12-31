@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	clienttypes "github.com/cosmos/ibc-go/v8/modules/core/02-client/types"
@@ -122,11 +123,11 @@ func WaitForTheConditionToBecomeTrueAndReturnTransformed[T, K any](resProvider f
 	}
 	return transformer(res)
 }
-func WaitForTNoErrorAndReturn[T any](resProvider func() (T, error)) T {
+func WaitForTNoErrorAndReturn[T any](ctx context.Context, resProvider func(ctx context.Context) (T, error)) T {
 	var res T
 	var err error
-	for res, err = resProvider(); err != nil; {
-		res, err = resProvider()
+	for res, err = resProvider(ctx); err != nil; {
+		res, err = resProvider(ctx)
 	}
 	return res
 }

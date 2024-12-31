@@ -130,7 +130,7 @@ type ForHeightBuilder struct {
 	sealed                     bool
 	lock                       *sync.Mutex
 }
-)
+
 func (b *ForHeightBuilder) WithChannelState() *ForHeightBuilder {
 
 	return b.doInLockIfNotSealedAndIf(func() { b.channelState = b.cs.channelStateManager.Get(b.height) }, b.channelState == nil)
@@ -205,8 +205,9 @@ type ChainState struct {
 }
 
 func NewChainState(ctx context.Context, cdc codec.Codec, chainProvider *cosmos.CosmosProvider, end *paths.PathEnd) *ChainState {
-	return &ChainState{
 
+	return &ChainState{
+		height:                            utils.WaitForTNoErrorAndReturn(ctx, chainProvider.QueryLatestHeight),
 		lock:                              &sync.Mutex{},
 		channelStateManager:               newStateManager(defaultCacheTTL, readTendermintProofFunctionFactory(ctx, chainProvider, channelKeySupplier(end), transformerForCreator(cdc, channelCreator))),
 		upgradeStateManager:               newStateManager(defaultCacheTTL, readTendermintProofFunctionFactory(ctx, chainProvider, upgradeKeySupplier(end), transformerForCreator(cdc, upgradeCreator))),

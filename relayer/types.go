@@ -11,8 +11,6 @@ import (
 	"main/relayer/client/paths"
 	"main/relayer/client/state"
 	"main/utils"
-	"sync"
-	"time"
 )
 
 type Relayer struct {
@@ -43,7 +41,7 @@ func NewRelayer(ctx context.Context, cdc *codec.ProtoCodec, props *Props) *Relay
 	return r
 }
 func (r *Relayer) updateChains(height int64, source, dest *client.ChainClient) {
-	source.MaybeUpdateClient(height, dest.IBCHeader)
+	go source.MaybeUpdateClient(height, dest.IBCHeader)
 
 }
 
@@ -69,24 +67,23 @@ func (r *Relayer) ChanOpenInit(_ *state.ForHeightBuilder) *state.ForHeightBuilde
 		})
 	respCb := func(resp *provider.RelayerTxResponse) {
 		r.path.Source().SetChanId(utils.ParseChannelIDFromEvents(resp.Events))
-		go r.updateChains(resp.Height, r.dest, r.source)
+		r.updateChains(resp.Height, r.dest, r.source)
 		fmt.Println("channel init")
 	}
 	return r.source.MaybePrependUpdateClientAndSend(r.dest.IBCHeader, msgSupplier.Get, respCb).WithChannelState()
 
 }
 
-func (r *Relayer) ChanOpenTry(builder *state.ForHeightBuilder) *state.ForHeightBuilder {
+func (r *Relayer) ChanOpenTry(cpStateBuilder *state.ForHeightBuilder) *state.ForHeightBuilder {
 
-	chainState := builder.WithChannelState().Build()
-
+	chainState := cpStateBuilder.WithChannelState().Build()
 	msgSupplier := utils.NewFuture[provider.RelayerMessage](
 		func() provider.RelayerMessage {
-			chanStateGet := chainState.Channel()
+			getChannelState := chainState.Channel()
 			return cosmos.NewCosmosMessage(&chantypes.MsgChannelOpenTry{
 				PortId:              r.path.Dest().Port(),
-				ProofInit:           chanStateGet().Proof(),
-				ProofHeight:         chanStateGet().Height(),
+				ProofInit:           getChannelState().Proof(),
+				ProofHeight:         getChannelState().Height(),
 				CounterpartyVersion: r.version,
 				Channel: chantypes.Channel{State: chantypes.TRYOPEN,
 					Ordering: chantypes.UNORDERED,
@@ -100,29 +97,29 @@ func (r *Relayer) ChanOpenTry(builder *state.ForHeightBuilder) *state.ForHeightB
 
 	respCb := func(resp *provider.RelayerTxResponse) {
 		r.path.Dest().SetChanId(utils.ParseChannelIDFromEvents(resp.Events))
-		go r.updateChains(resp.Height, r.source, r.dest)
+		r.updateChains(resp.Height, r.source, r.dest)
 		fmt.Println("channel tried")
 	}
 
-	return r.dest.MaybePrependUpdateClientAndSend(r.source.IBCHeader, msgSupplier.Get, respCb)
+	return r.dest.MaybePrependUpdateClientAndSend(r.source.IBCHeader, msgSupplier.Get, respCb).WithChannelState()
 
 }
 
-func (r *Relayer) ChanOpenAck(builder *state.ForHeightBuilder) {
+func (r *Relayer) ChanOpenAck(cpStateBuilder *state.ForHeightBuilder) *state.ForHeightBuilder {
 
-	chainStateFuture := utils.NewFuture[*client.ChainState](func() *client.ChainState {
-		return r.dest.GetChainStateForHeight(r.dest.Height())
-	})
+	chainState := cpStateBuilder.WithChannelState().Build()
 
 	msgSupplier := utils.NewFuture[provider.RelayerMessage](
 		func() provider.RelayerMessage {
+			getChannelState := chainState.Channel()
+
 			return cosmos.NewCosmosMessage(&chantypes.MsgChannelOpenAck{
 				PortId:                r.path.Source().Port(),
 				ChannelId:             r.path.Source().ChanId(),
 				CounterpartyChannelId: r.path.Dest().ChanId(),
-				CounterpartyVersion:   chainStateFuture.Get().ChanProofData().Val().Version,
-				ProofTry:              chainStateFuture.Get().ChanProofData().Proof(),
-				ProofHeight:           chainStateFuture.Get().ChanProofData().Height(),
+				CounterpartyVersion:   getChannelState().Val().Version,
+				ProofTry:              getChannelState().Proof(),
+				ProofHeight:           getChannelState().Height(),
 
 				Signer: r.source.Address(),
 			}, nil)
@@ -132,22 +129,22 @@ func (r *Relayer) ChanOpenAck(builder *state.ForHeightBuilder) {
 		r.updateChains(resp.Height, r.dest, r.source)
 		fmt.Println("channel acked")
 	}
-	r.source.MaybePrependUpdateClientAndSend(r.dest.IBCHeader, msgSupplier.Get, respCb)
+	return r.source.MaybePrependUpdateClientAndSend(r.dest.IBCHeader, msgSupplier.Get, respCb).WithChannelState()
 
 }
 
-func (r *Relayer) ChanOpenConfirm() {
-	chainStateFuture := utils.NewFuture[*client.ChainState](func() *client.ChainState {
-		return r.source.GetChainStateForHeight(r.source.Height())
-	})
+func (r *Relayer) ChanOpenConfirm(cpStateBuilder *state.ForHeightBuilder) *state.ForHeightBuilder {
+	chainState := cpStateBuilder.WithChannelState().Build()
 
 	msgSupplier := utils.NewFuture[provider.RelayerMessage](
 		func() provider.RelayerMessage {
+			getChannelState := chainState.Channel()
+
 			return cosmos.NewCosmosMessage(&chantypes.MsgChannelOpenConfirm{
 				PortId:      r.path.Dest().Port(),
 				ChannelId:   r.path.Dest().ChanId(),
-				ProofAck:    chainStateFuture.Get().ChanProofData().Proof(),
-				ProofHeight: chainStateFuture.Get().ChanProofData().Height(),
+				ProofAck:    getChannelState().Proof(),
+				ProofHeight: getChannelState().Height(),
 
 				Signer: r.dest.Address(),
 			}, nil)
@@ -157,56 +154,55 @@ func (r *Relayer) ChanOpenConfirm() {
 		r.updateChains(resp.Height, r.source, r.dest)
 		fmt.Println("channel confirmed")
 	}
-	r.dest.MaybePrependUpdateClientAndSend(r.source.Height(), r.source.IBCHeader, msgSupplier.Get, respCb)
+	return r.dest.MaybePrependUpdateClientAndSend(r.source.IBCHeader, msgSupplier.Get, respCb)
 
 }
 
-func (r *Relayer) ChanUpgradeTry() {
+func (r *Relayer) ChanUpgradeTry(cpStateBuilder *state.ForHeightBuilder) *state.ForHeightBuilder {
 
-	chainStateFuture := utils.NewFuture[*client.ChainState](func() *client.ChainState {
-		return r.source.GetChainStateForHeight(r.source.Height())
-	})
+	chainState := cpStateBuilder.WithChannelState().WithUpgradeState().Build()
 
 	msgSupplier := utils.NewFuture[provider.RelayerMessage](
 		func() provider.RelayerMessage {
+			getChannelState := chainState.Channel()
+			getUpgradeState := chainState.Upgrade()
 			return cosmos.NewCosmosMessage(&chantypes.MsgChannelUpgradeTry{
 				PortId:                        r.path.Dest().Port(),
 				ChannelId:                     r.path.Dest().ChanId(),
 				ProposedUpgradeConnectionHops: []string{r.path.Dest().ConnId()}, // we leave same ch for this use case
-				CounterpartyUpgradeFields:     chainStateFuture.Get().UpgradeProofData().Val().Fields,
-				CounterpartyUpgradeSequence:   chainStateFuture.Get().ChanProofData().Val().UpgradeSequence,
-				ProofChannel:                  chainStateFuture.Get().ChanProofData().Proof(),
-				ProofUpgrade:                  chainStateFuture.Get().UpgradeProofData().Proof(),
-				ProofHeight:                   chainStateFuture.Get().ChanProofData().Height(),
+				CounterpartyUpgradeFields:     getUpgradeState().Val().Fields,
+				CounterpartyUpgradeSequence:   getChannelState().Val().UpgradeSequence,
+				ProofChannel:                  getChannelState().Proof(),
+				ProofUpgrade:                  getUpgradeState().Proof(),
+				ProofHeight:                   getChannelState().Height(),
 				Signer:                        r.dest.Address(),
 			}, nil)
 		})
 
 	respCb := func(resp *provider.RelayerTxResponse) {
-		r.path.Dest().SetUpgrade(true)
-		r.path.Source().SetUpgrade(true)
+
 		r.updateChains(resp.Height, r.source, r.dest)
 		fmt.Println("upgrade tried acked")
 	}
-	r.dest.MaybePrependUpdateClientAndSend(r.source.Height(), r.source.IBCHeader, msgSupplier.Get, respCb)
+	return r.dest.MaybePrependUpdateClientAndSend(r.source.IBCHeader, msgSupplier.Get, respCb).WithChannelState().WithUpgradeState()
 
 }
 
-func (r *Relayer) ChanUpgradeAck() {
+func (r *Relayer) ChanUpgradeAck(cpStateBuilder *state.ForHeightBuilder) *state.ForHeightBuilder {
 
-	chainStateFuture := utils.NewFuture[*client.ChainState](func() *client.ChainState {
-		return r.dest.GetChainStateForHeight(r.dest.Height())
-	})
+	chainState := cpStateBuilder.WithChannelState().WithUpgradeState().Build()
 
 	msgSupplier := utils.NewFuture[provider.RelayerMessage](
 		func() provider.RelayerMessage {
+			getChannelState := chainState.Channel()
+			getUpgradeState := chainState.Upgrade()
 			return cosmos.NewCosmosMessage(&chantypes.MsgChannelUpgradeAck{
 				PortId:              r.path.Source().Port(),
 				ChannelId:           r.path.Source().ChanId(),
-				CounterpartyUpgrade: *chainStateFuture.Get().UpgradeProofData().Val(),
-				ProofChannel:        chainStateFuture.Get().ChanProofData().Proof(),
-				ProofUpgrade:        chainStateFuture.Get().UpgradeProofData().Proof(),
-				ProofHeight:         chainStateFuture.Get().ChanProofData().Height(),
+				CounterpartyUpgrade: *getUpgradeState().Val(),
+				ProofChannel:        getChannelState().Proof(),
+				ProofUpgrade:        getUpgradeState().Proof(),
+				ProofHeight:         getChannelState().Height(),
 
 				Signer: r.source.Address(),
 			}, nil)
@@ -217,26 +213,26 @@ func (r *Relayer) ChanUpgradeAck() {
 		fmt.Println("channel upgrade acked")
 	}
 
-	r.source.MaybePrependUpdateClientAndSend(r.dest.Height(), r.dest.IBCHeader, msgSupplier.Get, respCb)
+	return r.source.MaybePrependUpdateClientAndSend(r.dest.IBCHeader, msgSupplier.Get, respCb).WithChannelState().WithUpgradeState()
 
 }
 
-func (r *Relayer) ChanUpgradeConfirm() {
+func (r *Relayer) ChanUpgradeConfirm(cpStateBuilder *state.ForHeightBuilder) *state.ForHeightBuilder {
 
-	chainStateFuture := utils.NewFuture[*client.ChainState](func() *client.ChainState {
-		return r.source.GetChainStateForHeight(r.source.Height())
-	})
+	chainState := cpStateBuilder.WithChannelState().WithUpgradeState().Build()
 
 	msgSupplier := utils.NewFuture[provider.RelayerMessage](
 		func() provider.RelayerMessage {
+			getChannelState := chainState.Channel()
+			getUpgradeState := chainState.Upgrade()
 			return cosmos.NewCosmosMessage(&chantypes.MsgChannelUpgradeConfirm{
 				PortId:                   r.path.Dest().Port(),
 				ChannelId:                r.path.Dest().ChanId(),
-				CounterpartyChannelState: chainStateFuture.Get().ChanProofData().Val().State,
-				CounterpartyUpgrade:      *chainStateFuture.Get().UpgradeProofData().Val(),
-				ProofChannel:             chainStateFuture.Get().ChanProofData().Proof(),
-				ProofUpgrade:             chainStateFuture.Get().UpgradeProofData().Proof(),
-				ProofHeight:              chainStateFuture.Get().ChanProofData().Height(),
+				CounterpartyChannelState: getChannelState().Val().State,
+				CounterpartyUpgrade:      *getUpgradeState().Val(),
+				ProofChannel:             getChannelState().Proof(),
+				ProofUpgrade:             getUpgradeState().Proof(),
+				ProofHeight:              getChannelState().Height(),
 				Signer:                   r.dest.Address(),
 			}, nil)
 		})
@@ -246,37 +242,35 @@ func (r *Relayer) ChanUpgradeConfirm() {
 		fmt.Println("upgrade confirmed")
 	}
 
-	r.dest.MaybePrependUpdateClientAndSend(r.source.Height(), r.source.IBCHeader, msgSupplier.Get, respCb)
+	return r.dest.MaybePrependUpdateClientAndSend(r.source.IBCHeader, msgSupplier.Get, respCb).WithChannelState()
 
 }
 
-func (r *Relayer) ChanUpgradeOpen() {
+func (r *Relayer) ChanUpgradeOpen(cpStateBuilder *state.ForHeightBuilder) *state.ForHeightBuilder {
 
-	chainStateFuture := utils.NewFuture[*client.ChainState](func() *client.ChainState {
-		return r.dest.GetChainStateForHeight(r.dest.Height())
-	})
+	chainState := cpStateBuilder.WithChannelState().Build()
 
 	msgSupplier := utils.NewFuture[provider.RelayerMessage](
 		func() provider.RelayerMessage {
+			getChannelState := chainState.Channel()
 			return cosmos.NewCosmosMessage(&chantypes.MsgChannelUpgradeOpen{
 				PortId:                      r.path.Source().Port(),
 				ChannelId:                   r.path.Source().ChanId(),
-				CounterpartyChannelState:    chainStateFuture.Get().ChanProofData().Val().State,
-				CounterpartyUpgradeSequence: chainStateFuture.Get().ChanProofData().Val().UpgradeSequence,
-				ProofChannel:                chainStateFuture.Get().ChanProofData().Proof(),
-				ProofHeight:                 chainStateFuture.Get().ChanProofData().Height(),
+				CounterpartyChannelState:    getChannelState().Val().State,
+				CounterpartyUpgradeSequence: getChannelState().Val().UpgradeSequence,
+				ProofChannel:                getChannelState().Proof(),
+				ProofHeight:                 getChannelState().Height(),
 
 				Signer: r.source.Address(),
 			}, nil)
 		})
 
 	respCb := func(resp *provider.RelayerTxResponse) {
-		r.path.Dest().SetUpgrade(false)
-		r.path.Source().SetUpgrade(false)
+
 		r.updateChains(resp.Height, r.dest, r.source)
 		fmt.Println("channel upgrade opened")
 	}
 
-	r.source.MaybePrependUpdateClientAndSend(r.dest.Height(), r.dest.IBCHeader, msgSupplier.Get, respCb)
+	return r.source.MaybePrependUpdateClientAndSend(r.dest.IBCHeader, msgSupplier.Get, respCb)
 
 }

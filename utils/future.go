@@ -1,6 +1,11 @@
 package utils
 
-import "sync"
+import (
+	"sync"
+	"time"
+)
+
+const defaultTimeout = 60
 
 type Future[T any] struct {
 	task    func() T
@@ -8,10 +13,15 @@ type Future[T any] struct {
 	res     T
 	done    bool
 	lock    *sync.Mutex
+	ticker  *time.Ticker
 }
 
-func NewFuture[T any](task func() T) *Future[T] {
-	f := &Future[T]{task: task, resChan: make(chan T), lock: &sync.Mutex{}}
+func NewFuture[T any](task func() T, to ...int) *Future[T] {
+	killAfterSec := defaultTimeout
+	if to != nil {
+		killAfterSec = to[0]
+	}
+	f := &Future[T]{task: task, resChan: make(chan T), lock: &sync.Mutex{}, ticker: time.NewTicker(time.Duration(killAfterSec) * time.Second)}
 	go func() {
 		res := f.task()
 		f.resChan <- res
@@ -25,7 +35,14 @@ func (f *Future[T]) Get() T {
 	if f.done {
 		return f.res
 	}
-	f.res = <-f.resChan
-	f.done = true
-	return f.res
+	for {
+		select {
+		case f.res = <-f.resChan:
+			f.done = true
+			return f.res
+		case <-f.ticker.C:
+			f.done = true
+			return f.res
+		}
+	}
 }

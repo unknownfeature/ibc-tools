@@ -11,16 +11,6 @@ type PathEnd struct {
 	lock     *sync.Mutex
 }
 
-func NewPathEnd(client, port, connection, channel string, upgrade bool) *PathEnd {
-	return &PathEnd{
-		lock:     new(sync.Mutex),
-		port:     port,
-		connId:   connection,
-		clientId: client,
-		chanId:   channel,
-	}
-}
-
 func (pe *PathEnd) ClientId() string {
 
 	pe.lock.Lock()
@@ -75,7 +65,7 @@ func (pe *PathEnd) SetSeq(seq uint64) {
 	pe.seq = seq
 }
 
-func NewPath(props Props) *Path {
+func NewPath(props *Props) *Path {
 	return &Path{
 		source: &PathEnd{
 			clientId: props.SourceClient,
