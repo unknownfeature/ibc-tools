@@ -50,16 +50,12 @@ func (c ConcurrentMap[K, V]) ComputeIfAbsent(k K, newValSuppl Function[K, V]) Op
 	return c.computeIfAbsentAndCall(k, newValSuppl)
 }
 
+func (c ConcurrentMap[K, V]) PutIfAbsent(k K, newValSuppl Function[K, V]) {
+	c.putIfAbsentAndCall(k, newValSuppl)
+}
+
 func (c ConcurrentMap[K, V]) DeleteIf(predicate BiPredicate[K, V]) {
-	DoInLock[Optional[V]](c.lock, func() {
-		newMap := make(map[K]V, 0)
-		for k, i := range c.internalMap {
-			if !predicate(k, i) {
-				newMap[k] = i
-			}
-		}
-		c.internalMap = newMap
-	})
+	c.deleteIfAndCall(predicate)
 }
 
 func (c ConcurrentMap[K, V]) putAndCall(k K, v V) {
@@ -101,6 +97,17 @@ func (c ConcurrentMap[K, V]) computeIfAbsentAndCall(k K, newValSuppl Function[K,
 		c.internalMap[k] = val
 		c.callCallback(k, val, Put)
 		return NewWithValue[V](&val)
+
+	})
+}
+
+func (c ConcurrentMap[K, V]) putIfAbsentAndCall(k K, newValSuppl Function[K, V]) {
+	DoInLock[Optional[V]](c.lock, func() {
+		if _, ok := c.internalMap[k]; !ok {
+			val := newValSuppl(k)
+			c.internalMap[k] = val
+			c.callCallback(k, val, Put)
+		}
 
 	})
 }
