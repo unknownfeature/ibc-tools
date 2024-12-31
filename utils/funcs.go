@@ -6,13 +6,14 @@ type Function[T, K any] func(T) K
 type BiFunction[T, K, L any] func(T, K) L
 type Predicate[T any] Function[T, bool]
 type BiPredicate[T, K any] BiFunction[T, K, bool]
+type BiConsumer[T, K any] func(T, K)
 type Comparator[T any] BiFunction[T, T, int]
 
-func Chain[T, K, V any](first Function[V, T], second Function[T, K]) Function[V, K] {
-	return func(val V) K {
-		return second(first(val))
-	}
-}
+//func Chain[T, K, V any](first Function[V, T], second Function[T, K]) Function[V, K] {
+//	return func(val V) K {
+//		return second(first(val))
+//	}
+//}
 
 func NewInt64Comparator() Comparator[int64] {
 	return func(i int64, i2 int64) int {

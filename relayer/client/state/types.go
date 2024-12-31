@@ -15,13 +15,13 @@ import (
 
 var defaultHeightOffset int64 = 10
 
-func readTmProofFactory[T any](ctx context.Context, chainProvider *cosmos.CosmosProvider, key []byte, transformer utils.Function[[]byte, *T]) utils.Function[int64, ProofData[T]] {
+func readTmProofFactory[T any](ctx context.Context, chainProvider *cosmos.CosmosProvider, keySupplier utils.Supplier[[]byte], transformer utils.Function[[]byte, *T]) utils.Function[int64, ProofData[T]] {
 	return func(height int64) ProofData[T] {
 		var val, proof []byte
 		var err error
 		var proofHeight clienttypes.Height
-		for val, proof, proofHeight, err = chainProvider.QueryTendermintProof(ctx, height+1, key); err != nil; {
-			val, proof, proofHeight, err = chainProvider.QueryTendermintProof(ctx, height+1, key)
+		for val, proof, proofHeight, err = chainProvider.QueryTendermintProof(ctx, height+1, keySupplier()); err != nil; {
+			val, proof, proofHeight, err = chainProvider.QueryTendermintProof(ctx, height+1, keySupplier())
 		}
 
 		return ProofData[T]{val: transformer(val), proof: proof, height: proofHeight}
@@ -29,13 +29,11 @@ func readTmProofFactory[T any](ctx context.Context, chainProvider *cosmos.Cosmos
 }
 
 type ChainState struct {
-	chanStateKeeper       *StateKeeper[chantypes.Channel]
-	upgradeStateKeeper    *StateKeeper[chantypes.Upgrade]
-	clientStateKeeper     *StateKeeper[tmclient.ClientState]
-	consensusStateKeeper  *StateKeeper[tmclient.ConsensusState]
-	connectionStateKeeper *StateKeeper[connectiontypes.ConnectionEnd]
-
-	enabledKeepers []*StateKeeper[any]
+	channelState    *State[chantypes.Channel]
+	upgradeState    *State[chantypes.Upgrade]
+	clientState     *State[tmclient.ClientState]
+	consensusState  *State[tmclient.ConsensusState]
+	connectionState *State[connectiontypes.ConnectionEnd]
 
 	chanProofData     *ProofData[chantypes.Channel]
 	upgradeProofData  *ProofData[chantypes.Upgrade]
@@ -55,7 +53,7 @@ func (cs *ChainState) ChanProofData() *ProofData[chantypes.Channel] {
 }
 
 func (cs *ChainState) Channel(height int64) *ProofData[chantypes.Channel] {
-	return cs.chanStateKeeper.Get(height)
+	return cs.channelState.Get(height)
 }
 func (cs *ChainState) UpgradeProofData() *ProofData[chantypes.Upgrade] {
 	return cs.upgradeProofData
@@ -83,23 +81,23 @@ func (d *ProofData[T]) Val() *T {
 	return d.val
 }
 
-type StateKeeper[T any] struct {
+type State[T any] struct {
 	perHeightState *utils.ConcurrentTTLMap[int64, ProofData[T]]
 	newStateFunc   utils.Function[int64, ProofData[T]]
 }
 
-func NewStateKeeper[T any](ctx context.Context, chainProvider *cosmos.CosmosProvider, key []byte, transformer utils.Function[[]byte, *T]) *StateKeeper[T] {
-	return &StateKeeper[T]{
+func NewStateKeeper[T any](ctx context.Context, chainProvider *cosmos.CosmosProvider, keySupplier utils.Supplier[[]byte], transformer utils.Function[[]byte, *T]) *State[T] {
+	return &State[T]{
 		perHeightState: utils.NewMapWithExpirationPredicate[int64, ProofData[T]](
 			func(i, j int64) int { return int(i - j) },
 			func(i utils.MapItem[ProofData[T]], topKey int64) bool {
 				return int64(i.Val.height.RevisionHeight) < topKey-defaultHeightOffset
 			},
 		),
-		newStateFunc: readTmProofFactory(ctx, chainProvider, key, transformer),
+		newStateFunc: readTmProofFactory(ctx, chainProvider, keySupplier, transformer),
 	}
 }
 
-func (sk StateKeeper[T]) Get(height int64) *ProofData[T] {
+func (sk State[T]) Get(height int64) *ProofData[T] {
 	return sk.perHeightState.ComputeIfAbsent(height, sk.newStateFunc).Get()
 }
