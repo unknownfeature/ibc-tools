@@ -83,94 +83,95 @@ func upgradeKeySupplier(pathEnd *paths.PathEnd) utils.Supplier[[]byte] {
 }
 
 type State struct {
-	channelState               utils.Supplier[ProofData[chantypes.Channel]]
-	upgradeState               utils.Supplier[ProofData[chantypes.Upgrade]]
-	clientState                utils.Supplier[ProofData[tmclient.ClientState]]
-	connectionState            utils.Supplier[ProofData[connectiontypes.ConnectionEnd]]
-	packetCommitmentState      utils.Supplier[ProofData[[]byte]]
-	packetReceiptState         utils.Supplier[ProofData[[]byte]]
-	packetAcknowledgementState utils.Supplier[ProofData[[]byte]]
+	channelState               utils.Supplier[*ProofData[chantypes.Channel]]
+	upgradeState               utils.Supplier[*ProofData[chantypes.Upgrade]]
+	clientState                utils.Supplier[*ProofData[tmclient.ClientState]]
+	connectionState            utils.Supplier[*ProofData[connectiontypes.ConnectionEnd]]
+	packetCommitmentState      utils.Supplier[*ProofData[[]byte]]
+	packetReceiptState         utils.Supplier[*ProofData[[]byte]]
+	packetAcknowledgementState utils.Supplier[*ProofData[[]byte]]
 }
 
-func (s *State) Channel() utils.Supplier[ProofData[chantypes.Channel]] {
+func (s *State) Channel() utils.Supplier[*ProofData[chantypes.Channel]] {
 	return s.channelState
 }
-func (s *State) Upgrade() utils.Supplier[ProofData[chantypes.Upgrade]] {
+func (s *State) Upgrade() utils.Supplier[*ProofData[chantypes.Upgrade]] {
 	return s.upgradeState
 }
-func (s *State) ClientState() utils.Supplier[ProofData[tmclient.ClientState]] {
+func (s *State) ClientState() utils.Supplier[*ProofData[tmclient.ClientState]] {
 	return s.clientState
 }
-func (s *State) ConnectionState() utils.Supplier[ProofData[connectiontypes.ConnectionEnd]] {
+func (s *State) ConnectionState() utils.Supplier[*ProofData[connectiontypes.ConnectionEnd]] {
 	return s.connectionState
 }
 
-func (s *State) PacketCommitmentState() utils.Supplier[ProofData[[]byte]] {
+func (s *State) PacketCommitmentState() utils.Supplier[*ProofData[[]byte]] {
 	return s.packetCommitmentState
 }
 
-func (s *State) PacketReceiptState() utils.Supplier[ProofData[[]byte]] {
+func (s *State) PacketReceiptState() utils.Supplier[*ProofData[[]byte]] {
 	return s.packetReceiptState
 }
 
-func (s *State) PacketAcknowledgementState() utils.Supplier[ProofData[[]byte]] {
+func (s *State) PacketAcknowledgementState() utils.Supplier[*ProofData[[]byte]] {
 	return s.packetAcknowledgementState
 }
 
 type ForHeightBuilder struct {
-	channelState               *utils.Future[ProofData[chantypes.Channel]]
-	upgradeState               *utils.Future[ProofData[chantypes.Upgrade]]
-	clientState                *utils.Future[ProofData[tmclient.ClientState]]
-	connectionState            *utils.Future[ProofData[connectiontypes.ConnectionEnd]]
-	packetCommitmentState      *utils.Future[ProofData[[]byte]]
-	packetReceiptState         *utils.Future[ProofData[[]byte]]
-	packetAcknowledgementState *utils.Future[ProofData[[]byte]]
+	channelState               *utils.Future[*ProofData[chantypes.Channel]]
+	upgradeState               *utils.Future[*ProofData[chantypes.Upgrade]]
+	clientState                *utils.Future[*ProofData[tmclient.ClientState]]
+	connectionState            *utils.Future[*ProofData[connectiontypes.ConnectionEnd]]
+	packetCommitmentState      *utils.Future[*ProofData[[]byte]]
+	packetReceiptState         *utils.Future[*ProofData[[]byte]]
+	packetAcknowledgementState *utils.Future[*ProofData[[]byte]]
 	cs                         *ChainState
 	height                     int64
 	sealed                     bool
 	lock                       *sync.Mutex
 }
-
+)
 func (b *ForHeightBuilder) WithChannelState() *ForHeightBuilder {
 
-	return b.doInLockIfNotSealed(func() { b.channelState = b.cs.channelStateManager.Get(b.height) })
+	return b.doInLockIfNotSealedAndIf(func() { b.channelState = b.cs.channelStateManager.Get(b.height) }, b.channelState == nil)
 }
 
 func (b *ForHeightBuilder) WithUpgradeState() *ForHeightBuilder {
 
-	return b.doInLockIfNotSealed(func() { b.upgradeState = b.cs.upgradeStateManager.Get(b.height) })
+	return b.doInLockIfNotSealedAndIf(func() { b.upgradeState = b.cs.upgradeStateManager.Get(b.height) }, b.upgradeState == nil)
 }
 
 func (b *ForHeightBuilder) WithClientState() *ForHeightBuilder {
 
-	return b.doInLockIfNotSealed(func() { b.clientState = b.cs.clientStateManager.Get(b.height) })
+	return b.doInLockIfNotSealedAndIf(func() { b.clientState = b.cs.clientStateManager.Get(b.height) }, b.clientState == nil)
 }
 func (b *ForHeightBuilder) WithConnectionState() *ForHeightBuilder {
 
-	return b.doInLockIfNotSealed(func() { b.connectionState = b.cs.connectionStateManager.Get(b.height) })
+	return b.doInLockIfNotSealedAndIf(func() { b.connectionState = b.cs.connectionStateManager.Get(b.height) }, b.connectionState == nil)
 }
 
 func (b *ForHeightBuilder) WithPacketCommitmentStatee() *ForHeightBuilder {
 
-	return b.doInLockIfNotSealed(func() { b.packetCommitmentState = b.cs.packetCommitmentStateManager.Get(b.height) })
+	return b.doInLockIfNotSealedAndIf(func() { b.packetCommitmentState = b.cs.packetCommitmentStateManager.Get(b.height) }, b.packetCommitmentState == nil)
 
 }
 func (b *ForHeightBuilder) WithPacketReceiptStatee() *ForHeightBuilder {
 
-	return b.doInLockIfNotSealed(func() { b.packetReceiptState = b.cs.packetReceiptStateManager.Get(b.height) })
+	return b.doInLockIfNotSealedAndIf(func() { b.packetReceiptState = b.cs.packetReceiptStateManager.Get(b.height) }, b.packetReceiptState == nil)
 
 }
 
 func (b *ForHeightBuilder) WithPacketAcknowledgementStatee() *ForHeightBuilder {
 
-	return b.doInLockIfNotSealed(func() { b.packetAcknowledgementState = b.cs.packetAcknowledgementStateManager.Get(b.height) })
+	return b.doInLockIfNotSealedAndIf(func() { b.packetAcknowledgementState = b.cs.packetAcknowledgementStateManager.Get(b.height) },
+		b.packetAcknowledgementState == nil)
 
 }
 
-func (b *ForHeightBuilder) doInLockIfNotSealed(whatToDo func()) *ForHeightBuilder {
+func (b *ForHeightBuilder) doInLockIfNotSealedAndIf(whatToDo func(), condition bool) *ForHeightBuilder {
 	b.lock.Lock()
 	defer b.lock.Unlock()
-	if b.sealed {
+	if b.sealed || !condition {
 		return b
 	}
 	whatToDo()
@@ -211,9 +212,9 @@ func NewChainState(ctx context.Context, cdc codec.Codec, chainProvider *cosmos.C
 		upgradeStateManager:               newStateManager(defaultCacheTTL, readTendermintProofFunctionFactory(ctx, chainProvider, upgradeKeySupplier(end), transformerForCreator(cdc, upgradeCreator))),
 		clientStateManager:                newStateManager(defaultCacheTTL, readTendermintProofFunctionFactory(ctx, chainProvider, clientStateKeySupplier(end), transformerForCreator(cdc, clientStateCreator))),
 		connectionStateManager:            newStateManager(defaultCacheTTL, readTendermintProofFunctionFactory(ctx, chainProvider, connectionKeySupplier(end), transformerForCreator(cdc, connectionStateCreator))),
-		packetCommitmentStateManager:      newStateManager[[]byte](defaultCacheTTL, readTendermintProofFunctionFactory[[]byte](ctx, chainProvider, packetCommitmentKeySupplier(end), noopTransformer)),
-		packetReceiptStateManager:         newStateManager[[]byte](defaultCacheTTL, readTendermintProofFunctionFactory[[]byte](ctx, chainProvider, packetReceiptKeySupplier(end), noopTransformer)),
-		packetAcknowledgementStateManager: newStateManager[[]byte](defaultCacheTTL, readTendermintProofFunctionFactory[[]byte](ctx, chainProvider, packetAcknowledgementKeySupplier(end), noopTransformer)),
+		packetCommitmentStateManager:      newStateManager[[]byte](defaultCacheTTL, readTendermintProofFunctionFactory[[]byte](ctx, chainProvider, packetCommitmentKeySupplier(end), noopTransformer[*[]byte])),
+		packetReceiptStateManager:         newStateManager[[]byte](defaultCacheTTL, readTendermintProofFunctionFactory[[]byte](ctx, chainProvider, packetReceiptKeySupplier(end), noopTransformer[*[]byte])),
+		packetAcknowledgementStateManager: newStateManager[[]byte](defaultCacheTTL, readTendermintProofFunctionFactory[[]byte](ctx, chainProvider, packetAcknowledgementKeySupplier(end), noopTransformer[*[]byte])),
 	}
 
 }
@@ -223,6 +224,18 @@ func (cs *ChainState) ForHeight(height int64) *ForHeightBuilder {
 	cs.height = int64(math.Max(float64(height), float64(cs.height)))
 	cs.lock.Unlock()
 	return &ForHeightBuilder{cs: cs, height: height, lock: &sync.Mutex{}}
+}
+
+func (cs *ChainState) ForLatestHeight() *ForHeightBuilder {
+	cs.lock.Lock()
+	cs.lock.Unlock()
+	return &ForHeightBuilder{cs: cs, height: cs.height, lock: &sync.Mutex{}}
+}
+
+func (cs *ChainState) Height() int64 {
+	cs.lock.Lock()
+	cs.lock.Unlock()
+	return cs.height
 }
 
 type ProofData[T any] struct {
@@ -256,6 +269,9 @@ func newStateManager[T any](ttl time.Duration, stateFunc utils.Function[int64, P
 	}
 }
 
-func (sk Manager[T]) Get(height int64) *utils.Future[ProofData[T]] {
-	return utils.NewFuture[ProofData[T]](func() ProofData[T] { return sk.stateCache.ComputeIfAbsent(height, sk.newStateFunc) })
+func (sk Manager[T]) Get(height int64) *utils.Future[*ProofData[T]] {
+	return utils.NewFuture[*ProofData[T]](func() *ProofData[T] {
+		res := sk.stateCache.ComputeIfAbsent(height, sk.newStateFunc)
+		return &res
+	})
 }

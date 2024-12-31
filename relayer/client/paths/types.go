@@ -106,12 +106,12 @@ type Props struct {
 	SourceClient     string
 	SourcePort       string
 	SourceConnection string
-	SourceSequence   int
+	SourceSequence   uint64
 	DestChannel      string
 	DestClient       string
 	DestPort         string
 	DestConnection   string
-	DestSequence     int
+	DestSequence     uint64
 }
 
 func (p *Path) Source() *PathEnd {

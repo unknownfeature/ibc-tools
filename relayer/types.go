@@ -9,6 +9,7 @@ import (
 	"github.com/cosmos/relayer/v2/relayer/provider"
 	"main/relayer/client"
 	"main/relayer/client/paths"
+	"main/relayer/client/state"
 	"main/utils"
 	"sync"
 	"time"
@@ -42,48 +43,50 @@ func NewRelayer(ctx context.Context, cdc *codec.ProtoCodec, props *Props) *Relay
 	return r
 }
 func (r *Relayer) updateChains(height int64, source, dest *client.ChainClient) {
-	go func() { source.MaybeUpdateClient(height, dest.IBCHeader) }()
-	go func() { dest.MaybeUpdateChainState(height) }()
+	source.MaybeUpdateClient(height, dest.IBCHeader)
 
 }
 
-func (r *Relayer) ChanOpenInit() {
-	msg := cosmos.NewCosmosMessage(&chantypes.MsgChannelOpenInit{
-		PortId: r.path.Source().Port(),
-		Channel: chantypes.Channel{
-			State:    chantypes.INIT,
-			Ordering: chantypes.UNORDERED,
-			Counterparty: chantypes.Counterparty{
-				PortId:    r.path.Dest().Port(),
-				ChannelId: "",
-			},
-			ConnectionHops: []string{r.path.Source().ConnId()},
-			Version:        r.version,
-		},
-		Signer: r.source.Address(),
-	}, nil)
-
-	respCb := func(resp *provider.RelayerTxResponse) {
-		r.path.Source().SetChanId(utils.ParseChannelIDFromEvents(resp.Events))
-		r.updateChains(resp.Height, r.dest, r.source)
-		fmt.Println("channel init")
-	}
-	r.source.SendMessage(r.context, msg, "init channel", respCb)
-
-}
-
-func (r *Relayer) ChanOpenTry() {
-
-	chainStateFuture := utils.NewFuture[*client.ChainState](func() *client.ChainState {
-		return r.source.GetChainStateForHeight(r.source.Height())
-	})
+func (r *Relayer) ChanOpenInit(_ *state.ForHeightBuilder) *state.ForHeightBuilder {
 
 	msgSupplier := utils.NewFuture[provider.RelayerMessage](
 		func() provider.RelayerMessage {
+			return cosmos.NewCosmosMessage(&chantypes.MsgChannelOpenInit{
+				PortId: r.path.Source().Port(),
+				Channel: chantypes.Channel{
+					State:    chantypes.INIT,
+					Ordering: chantypes.UNORDERED,
+					Counterparty: chantypes.Counterparty{
+						PortId:    r.path.Dest().Port(),
+						ChannelId: "",
+					},
+					ConnectionHops: []string{r.path.Source().ConnId()},
+					Version:        r.version,
+				},
+				Signer: r.source.Address(),
+			}, nil)
+
+		})
+	respCb := func(resp *provider.RelayerTxResponse) {
+		r.path.Source().SetChanId(utils.ParseChannelIDFromEvents(resp.Events))
+		go r.updateChains(resp.Height, r.dest, r.source)
+		fmt.Println("channel init")
+	}
+	return r.source.MaybePrependUpdateClientAndSend(r.dest.IBCHeader, msgSupplier.Get, respCb).WithChannelState()
+
+}
+
+func (r *Relayer) ChanOpenTry(builder *state.ForHeightBuilder) *state.ForHeightBuilder {
+
+	chainState := builder.WithChannelState().Build()
+
+	msgSupplier := utils.NewFuture[provider.RelayerMessage](
+		func() provider.RelayerMessage {
+			chanStateGet := chainState.Channel()
 			return cosmos.NewCosmosMessage(&chantypes.MsgChannelOpenTry{
 				PortId:              r.path.Dest().Port(),
-				ProofInit:           chainStateFuture.Get().ChanProofData().Proof(),
-				ProofHeight:         chainStateFuture.Get().ChanProofData().Height(),
+				ProofInit:           chanStateGet().Proof(),
+				ProofHeight:         chanStateGet().Height(),
 				CounterpartyVersion: r.version,
 				Channel: chantypes.Channel{State: chantypes.TRYOPEN,
 					Ordering: chantypes.UNORDERED,
@@ -97,14 +100,15 @@ func (r *Relayer) ChanOpenTry() {
 
 	respCb := func(resp *provider.RelayerTxResponse) {
 		r.path.Dest().SetChanId(utils.ParseChannelIDFromEvents(resp.Events))
-		r.updateChains(resp.Height, r.source, r.dest)
+		go r.updateChains(resp.Height, r.source, r.dest)
 		fmt.Println("channel tried")
 	}
-	r.dest.MaybePrependUpdateClientAndSend(r.source.Height(), r.source.IBCHeader, msgSupplier.Get, respCb)
+
+	return r.dest.MaybePrependUpdateClientAndSend(r.source.IBCHeader, msgSupplier.Get, respCb)
 
 }
 
-func (r *Relayer) ChanOpenAck() {
+func (r *Relayer) ChanOpenAck(builder *state.ForHeightBuilder) {
 
 	chainStateFuture := utils.NewFuture[*client.ChainState](func() *client.ChainState {
 		return r.dest.GetChainStateForHeight(r.dest.Height())
@@ -128,7 +132,7 @@ func (r *Relayer) ChanOpenAck() {
 		r.updateChains(resp.Height, r.dest, r.source)
 		fmt.Println("channel acked")
 	}
-	r.source.MaybePrependUpdateClientAndSend(r.dest.Height(), r.dest.IBCHeader, msgSupplier.Get, respCb)
+	r.source.MaybePrependUpdateClientAndSend(r.dest.IBCHeader, msgSupplier.Get, respCb)
 
 }
 
