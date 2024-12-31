@@ -10,7 +10,7 @@ import (
 	tmclient "github.com/cosmos/ibc-go/v8/modules/light-clients/07-tendermint"
 	"github.com/cosmos/relayer/v2/relayer/chains/cosmos"
 	"github.com/cosmos/relayer/v2/relayer/provider"
-	"main/relayer/client/path"
+	"main/relayer/client/paths"
 	"main/relayer/client/state"
 	"main/utils"
 	"math"
@@ -22,14 +22,14 @@ type ChainClient struct {
 	chain                  *cosmos.CosmosProvider
 	lock                   *sync.Mutex
 	ctx                    context.Context
-	pathEnd                *path.PathEnd
+	pathEnd                *paths.PathEnd
 	cdc                    codec.Codec
 	latestCpHeight         int64
 	chainStatePerHeight    map[int64]*state.ChainState
 	processedClientUpdates map[int64]bool
 }
 
-func NewChainClient(ctx context.Context, cdc *codec.ProtoCodec, chain *cosmos.CosmosProvider, pathEnd *path.PathEnd) *ChainClient {
+func NewChainClient(ctx context.Context, cdc *codec.ProtoCodec, chain *cosmos.CosmosProvider, pathEnd *paths.PathEnd) *ChainClient {
 
 	addr, err := chain.Address()
 	utils.HandleError(err)
