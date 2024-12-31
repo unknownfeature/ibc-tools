@@ -122,6 +122,14 @@ func WaitForTheConditionToBecomeTrueAndReturnTransformed[T, K any](resProvider f
 	}
 	return transformer(res)
 }
+func WaitForTNoErrorAndReturn[T any](resProvider func() (T, error)) T {
+	var res T
+	var err error
+	for res, err = resProvider(); err != nil; {
+		res, err = resProvider()
+	}
+	return res
+}
 func SubmitWithWaitGroup(task func(), wg *sync.WaitGroup) {
 	wg.Add(1)
 	go func() {

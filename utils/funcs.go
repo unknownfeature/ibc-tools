@@ -16,6 +16,10 @@ type Reducer[T any] BiFunction[*T, *T, *T]
 //	}
 //}
 
+func Identity[T any](t T) T {
+	return t
+}
+
 func NewInt64Comparator() Comparator[int64] {
 	return func(i int64, i2 int64) int {
 		return int(i - i2)

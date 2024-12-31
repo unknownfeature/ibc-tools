@@ -7,8 +7,7 @@ type PathEnd struct {
 	connId   string
 	port     string
 	chanId   string
-	upgrade  bool
-	height   int64
+	seq      uint64
 	lock     *sync.Mutex
 }
 
@@ -19,22 +18,9 @@ func NewPathEnd(client, port, connection, channel string, upgrade bool) *PathEnd
 		connId:   connection,
 		clientId: client,
 		chanId:   channel,
-		upgrade:  upgrade,
 	}
 }
 
-func (pe *PathEnd) Height() int64 {
-	pe.lock.Lock()
-	defer pe.lock.Unlock()
-
-	return pe.height
-}
-
-func (pe *PathEnd) SetHeight(height int64) {
-	pe.lock.Lock()
-	defer pe.lock.Unlock()
-	pe.height = height
-}
 func (pe *PathEnd) ClientId() string {
 
 	pe.lock.Lock()
@@ -78,16 +64,36 @@ func (pe *PathEnd) SetChanId(chanId string) {
 	pe.chanId = chanId
 }
 
-func (pe *PathEnd) Upgrade() bool {
+func (pe *PathEnd) Seq() uint64 {
 	pe.lock.Lock()
 	defer pe.lock.Unlock()
-	return pe.upgrade
+	return pe.seq
+}
+func (pe *PathEnd) SetSeq(seq uint64) {
+	pe.lock.Lock()
+	defer pe.lock.Unlock()
+	pe.seq = seq
 }
 
-func (pe *PathEnd) SetUpgrade(upgrade bool) {
-	pe.lock.Lock()
-	defer pe.lock.Unlock()
-	pe.upgrade = upgrade
+func NewPath(props Props) *Path {
+	return &Path{
+		source: &PathEnd{
+			clientId: props.SourceClient,
+			connId:   props.SourceConnection,
+			port:     props.SourcePort,
+			chanId:   props.SourceChannel,
+			seq:      props.SourceSequence,
+			lock:     &sync.Mutex{},
+		},
+		dest: &PathEnd{
+			clientId: props.DestClient,
+			connId:   props.DestConnection,
+			port:     props.DestPort,
+			chanId:   props.DestChannel,
+			seq:      props.DestSequence,
+			lock:     &sync.Mutex{},
+		},
+	}
 }
 
 type Path struct {
@@ -100,19 +106,12 @@ type Props struct {
 	SourceClient     string
 	SourcePort       string
 	SourceConnection string
-	SourceUpgrade    bool
+	SourceSequence   int
 	DestChannel      string
 	DestClient       string
 	DestPort         string
 	DestConnection   string
-	DestUpgrade      bool
-}
-
-func NewPath(props *Props) *Path {
-	return &Path{
-		source: NewPathEnd(props.SourceClient, props.SourcePort, props.SourceConnection, props.SourceChannel, props.SourceUpgrade),
-		dest:   NewPathEnd(props.DestClient, props.DestPort, props.DestConnection, props.DestChannel, props.DestUpgrade),
-	}
+	DestSequence     int
 }
 
 func (p *Path) Source() *PathEnd {

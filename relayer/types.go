@@ -11,17 +11,16 @@ import (
 	"main/relayer/client/paths"
 	"main/utils"
 	"sync"
+	"time"
 )
 
 type Relayer struct {
-	source               *client.ChainClient
-	dest                 *client.ChainClient
-	codec                *codec.ProtoCodec
-	path                 *paths.Path
-	context              context.Context
-	version              string
-	sourceUpdatedHeights *sync.Map
-	destUpdatedHeights   *sync.Map
+	source  *client.ChainClient
+	dest    *client.ChainClient
+	codec   *codec.ProtoCodec
+	path    *paths.Path
+	context context.Context
+	version string
 }
 
 type Props struct {

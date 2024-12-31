@@ -46,10 +46,13 @@ func (c ConcurrentMap[K, V]) Delete(k K) Optional[V] {
 	return c.deleteAndCall(k)
 }
 
-func (c ConcurrentMap[K, V]) ComputeIfAbsent(k K, newValSuppl Function[K, V]) Optional[V] {
+func (c ConcurrentMap[K, V]) ComputeIfAbsent(k K, newValSuppl Function[K, V]) V {
 	return c.computeIfAbsentAndCall(k, newValSuppl)
 }
 
+func (c ConcurrentMap[K, V]) Compute(k K, newValSuppl Function[K, V]) V {
+	return c.computeIfAbsentAndCall(k, newValSuppl)
+}
 func (c ConcurrentMap[K, V]) PutIfAbsent(k K, newValSuppl Function[K, V]) {
 	c.putIfAbsentAndCall(k, newValSuppl)
 }
@@ -99,15 +102,25 @@ func (c ConcurrentMap[K, V]) deleteAndCall(k K) Optional[V] {
 	})
 }
 
-func (c ConcurrentMap[K, V]) computeIfAbsentAndCall(k K, newValSuppl Function[K, V]) Optional[V] {
-	return DoInLockAndReturn[Optional[V]](c.lock, func() Optional[V] {
+func (c ConcurrentMap[K, V]) computeAndCall(k K, newValSuppl Function[K, V]) V {
+	return DoInLockAndReturn[V](c.lock, func() V {
+		val := newValSuppl(k)
+		c.internalMap[k] = val
+		c.callCallback(k, val, Put)
+		return val
+
+	})
+}
+
+func (c ConcurrentMap[K, V]) computeIfAbsentAndCall(k K, newValSuppl Function[K, V]) V {
+	return DoInLockAndReturn[V](c.lock, func() V {
 		if i, ok := c.internalMap[k]; ok {
-			return NewWithValue[V](&i)
+			return i
 		}
 		val := newValSuppl(k)
 		c.internalMap[k] = val
 		c.callCallback(k, val, Put)
-		return NewWithValue[V](&val)
+		return val
 
 	})
 }
