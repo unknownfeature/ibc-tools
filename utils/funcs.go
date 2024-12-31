@@ -8,10 +8,11 @@ type Predicate[T any] Function[T, bool]
 type BiPredicate[T, K any] BiFunction[T, K, bool]
 type BiConsumer[T, K any] func(T, K)
 type Comparator[T any] BiFunction[T, T, int]
+type Reducer[T any] BiFunction[*T, *T, *T]
 
 //func Chain[T, K, V any](first Function[V, T], second Function[T, K]) Function[V, K] {
-//	return func(val V) K {
-//		return second(first(val))
+//	return func(Val V) K {
+//		return second(first(Val))
 //	}
 //}
 

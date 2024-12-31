@@ -12,8 +12,8 @@ type ConcurrentMap[K comparable, V any] struct {
 }
 
 type Entry[K comparable, V any] struct {
-	key K
-	val V
+	Key K
+	Val V
 }
 
 type Operation int
@@ -56,6 +56,17 @@ func (c ConcurrentMap[K, V]) PutIfAbsent(k K, newValSuppl Function[K, V]) {
 
 func (c ConcurrentMap[K, V]) DeleteIf(predicate BiPredicate[K, V]) {
 	c.deleteIfAndCall(predicate)
+}
+
+func (c ConcurrentMap[K, V]) ComputeOnKeys(reducer Reducer[K]) Optional[K] {
+	return DoInLockAndReturn(c.lock, func() Optional[K] {
+		var res *K
+		for k, _ := range c.internalMap {
+			res = reducer(res, &k)
+
+		}
+		return NewWithValue(res)
+	})
 }
 
 func (c ConcurrentMap[K, V]) putAndCall(k K, v V) {
@@ -143,9 +154,9 @@ func NewExpiringConcurrentMap[K comparable, V any](predicate BiPredicate[Entry[K
 
 	onChange := func(en Entry[K, V], op Operation) {
 		if op == Put {
-			timeAdded[en.key] = time.Now().Second()
-		} else if _, ok := timeAdded[en.key]; ok && op == Delete {
-			delete(timeAdded, en.key)
+			timeAdded[en.Key] = time.Now().Second()
+		} else if _, ok := timeAdded[en.Key]; ok && op == Delete {
+			delete(timeAdded, en.Key)
 		}
 
 	}

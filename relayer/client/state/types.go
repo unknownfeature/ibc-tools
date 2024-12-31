@@ -11,6 +11,7 @@ import (
 	"github.com/cosmos/relayer/v2/relayer/chains/cosmos"
 	"main/relayer/client/paths"
 	"main/utils"
+	"math"
 )
 
 var defaultHeightOffset int64 = 10
@@ -26,6 +27,30 @@ func readTmProofFactory[T any](ctx context.Context, chainProvider *cosmos.Cosmos
 
 		return ProofData[T]{val: transformer(val), proof: proof, height: proofHeight}
 	}
+}
+
+func maxHeight(one, two *int64) *int64 {
+	if one == nil {
+		return two
+	}
+	if two == nil {
+		return one
+	}
+	res := int64(math.Max(float64(*one), float64(*two)))
+	return &res
+}
+
+func latestBlockSupplier[K any](theMap utils.ConcurrentMap[int64, ProofData[K]]) utils.Supplier[utils.Optional[int64]] {
+	return func() utils.Optional[int64] {
+		return theMap.ComputeOnKeys(maxHeight)
+	}
+}
+func newStateCache[V any](topNumOfBlocks int64, latestBlockSupplier utils.Supplier[utils.Optional[int64]]) *utils.ExpiringConcurrentMap[int64, ProofData[V]] {
+	return utils.NewExpiringConcurrentMap[int64, ProofData[V]](func(e utils.Entry[int64, ProofData[V]], _ int) bool {
+		maxBlock := latestBlockSupplier()
+		return maxBlock.IsPresent() && *maxBlock.Get()-topNumOfBlocks > e.Key
+
+	})
 }
 
 type ChainState struct {
@@ -82,22 +107,17 @@ func (d *ProofData[T]) Val() *T {
 }
 
 type State[T any] struct {
-	perHeightState *utils.ConcurrentTTLMap[int64, ProofData[T]]
-	newStateFunc   utils.Function[int64, ProofData[T]]
+	stateChache  *utils.ConcurrentMap[int64, ProofData[T]]
+	newStateFunc utils.Function[int64, ProofData[T]]
 }
 
 func NewStateKeeper[T any](ctx context.Context, chainProvider *cosmos.CosmosProvider, keySupplier utils.Supplier[[]byte], transformer utils.Function[[]byte, *T]) *State[T] {
 	return &State[T]{
-		perHeightState: utils.NewMapWithExpirationPredicate[int64, ProofData[T]](
-			func(i, j int64) int { return int(i - j) },
-			func(i utils.MapItem[ProofData[T]], topKey int64) bool {
-				return int64(i.Val.height.RevisionHeight) < topKey-defaultHeightOffset
-			},
-		),
+		stateChache:  newStateCache[T](defaultHeightOffset, chainProvider.QueryLatestHeight),
 		newStateFunc: readTmProofFactory(ctx, chainProvider, keySupplier, transformer),
 	}
 }
 
 func (sk State[T]) Get(height int64) *ProofData[T] {
-	return sk.perHeightState.ComputeIfAbsent(height, sk.newStateFunc).Get()
+	return sk.stateChache.ComputeIfAbsent(height, sk.newStateFunc).Get()
 }
