@@ -126,7 +126,7 @@ func (c ConcurrentMap[K, V]) computeIfAbsentAndCall(k K, newValSuppl Function[K,
 }
 
 func (c ConcurrentMap[K, V]) putIfAbsentAndCall(k K, newValSuppl Function[K, V]) {
-	DoInLock[Optional[V]](c.lock, func() {
+	DoInLock(c.lock, func() {
 		if _, ok := c.internalMap[k]; !ok {
 			val := newValSuppl(k)
 			c.internalMap[k] = val
@@ -137,7 +137,7 @@ func (c ConcurrentMap[K, V]) putIfAbsentAndCall(k K, newValSuppl Function[K, V])
 }
 
 func (c ConcurrentMap[K, V]) deleteIfAndCall(predicate BiPredicate[K, V]) {
-	DoInLock[Optional[V]](c.lock, func() {
+	DoInLock(c.lock, func() {
 		newMap := make(map[K]V, 0)
 		for k, i := range c.internalMap {
 			if !predicate(k, i) {
@@ -158,11 +158,7 @@ func (c ConcurrentMap[K, V]) callCallback(k K, v V, operation Operation) {
 	}
 }
 
-type ExpiringConcurrentMap[K comparable, V any] struct {
-	internal *ConcurrentMap[K, V]
-}
-
-func NewExpiringConcurrentMap[K comparable, V any](predicate BiPredicate[Entry[K, V], int]) *ExpiringConcurrentMap[K, V] {
+func NewExpiringConcurrentMap[K comparable, V any](predicate BiPredicate[Entry[K, V], int]) *ConcurrentMap[K, V] {
 	timeAdded := make(map[K]int, 0)
 
 	onChange := func(en Entry[K, V], op Operation) {
@@ -187,10 +183,10 @@ func NewExpiringConcurrentMap[K comparable, V any](predicate BiPredicate[Entry[K
 		}
 	}()
 
-	return &ExpiringConcurrentMap[K, V]{theMap}
+	return theMap
 }
 
-func NewExpiresAfterDurationConcurrentMap[K comparable, V any](expireAfter time.Duration) *ExpiringConcurrentMap[K, V] {
+func NewExpiresAfterDurationConcurrentMap[K comparable, V any](expireAfter time.Duration) *ConcurrentMap[K, V] {
 	return NewExpiringConcurrentMap[K, V](func(e Entry[K, V], tm int) bool {
 		now := time.Now().Second()
 		return now-int(expireAfter.Seconds()) > tm

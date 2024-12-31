@@ -117,7 +117,7 @@ func (s *State) PacketAcknowledgementState() utils.Supplier[*ProofData[[]byte]] 
 	return s.packetAcknowledgementState
 }
 
-type ForHeightBuilder struct {
+type StateBuilder struct {
 	channelState               *utils.Future[*ProofData[chantypes.Channel]]
 	upgradeState               *utils.Future[*ProofData[chantypes.Upgrade]]
 	clientState                *utils.Future[*ProofData[tmclient.ClientState]]
@@ -131,44 +131,44 @@ type ForHeightBuilder struct {
 	lock                       *sync.Mutex
 }
 
-func (b *ForHeightBuilder) WithChannelState() *ForHeightBuilder {
+func (b *StateBuilder) WithChannelState() *StateBuilder {
 
 	return b.doInLockIfNotSealedAndIf(func() { b.channelState = b.cs.channelStateManager.Get(b.height) }, b.channelState == nil)
 }
 
-func (b *ForHeightBuilder) WithUpgradeState() *ForHeightBuilder {
+func (b *StateBuilder) WithUpgradeState() *StateBuilder {
 
 	return b.doInLockIfNotSealedAndIf(func() { b.upgradeState = b.cs.upgradeStateManager.Get(b.height) }, b.upgradeState == nil)
 }
 
-func (b *ForHeightBuilder) WithClientState() *ForHeightBuilder {
+func (b *StateBuilder) WithClientState() *StateBuilder {
 
 	return b.doInLockIfNotSealedAndIf(func() { b.clientState = b.cs.clientStateManager.Get(b.height) }, b.clientState == nil)
 }
-func (b *ForHeightBuilder) WithConnectionState() *ForHeightBuilder {
+func (b *StateBuilder) WithConnectionState() *StateBuilder {
 
 	return b.doInLockIfNotSealedAndIf(func() { b.connectionState = b.cs.connectionStateManager.Get(b.height) }, b.connectionState == nil)
 }
 
-func (b *ForHeightBuilder) WithPacketCommitmentStatee() *ForHeightBuilder {
+func (b *StateBuilder) WithPacketCommitmentStatee() *StateBuilder {
 
 	return b.doInLockIfNotSealedAndIf(func() { b.packetCommitmentState = b.cs.packetCommitmentStateManager.Get(b.height) }, b.packetCommitmentState == nil)
 
 }
-func (b *ForHeightBuilder) WithPacketReceiptStatee() *ForHeightBuilder {
+func (b *StateBuilder) WithPacketReceiptStatee() *StateBuilder {
 
 	return b.doInLockIfNotSealedAndIf(func() { b.packetReceiptState = b.cs.packetReceiptStateManager.Get(b.height) }, b.packetReceiptState == nil)
 
 }
 
-func (b *ForHeightBuilder) WithPacketAcknowledgementStatee() *ForHeightBuilder {
+func (b *StateBuilder) WithPacketAcknowledgementStatee() *StateBuilder {
 
 	return b.doInLockIfNotSealedAndIf(func() { b.packetAcknowledgementState = b.cs.packetAcknowledgementStateManager.Get(b.height) },
 		b.packetAcknowledgementState == nil)
 
 }
 
-func (b *ForHeightBuilder) doInLockIfNotSealedAndIf(whatToDo func(), condition bool) *ForHeightBuilder {
+func (b *StateBuilder) doInLockIfNotSealedAndIf(whatToDo func(), condition bool) *StateBuilder {
 	b.lock.Lock()
 	defer b.lock.Unlock()
 	if b.sealed || !condition {
@@ -177,7 +177,7 @@ func (b *ForHeightBuilder) doInLockIfNotSealedAndIf(whatToDo func(), condition b
 	whatToDo()
 	return b
 }
-func (b *ForHeightBuilder) Build() *State {
+func (b *StateBuilder) Build() *State {
 	b.lock.Lock()
 	defer b.lock.Unlock()
 	b.sealed = true
@@ -220,17 +220,17 @@ func NewChainState(ctx context.Context, cdc codec.Codec, chainProvider *cosmos.C
 
 }
 
-func (cs *ChainState) ForHeight(height int64) *ForHeightBuilder {
+func (cs *ChainState) ForHeight(height int64) *StateBuilder {
 	cs.lock.Lock()
 	cs.height = int64(math.Max(float64(height), float64(cs.height)))
 	cs.lock.Unlock()
-	return &ForHeightBuilder{cs: cs, height: height, lock: &sync.Mutex{}}
+	return &StateBuilder{cs: cs, height: height, lock: &sync.Mutex{}}
 }
 
-func (cs *ChainState) ForLatestHeight() *ForHeightBuilder {
+func (cs *ChainState) ForLatestHeight() *StateBuilder {
 	cs.lock.Lock()
 	cs.lock.Unlock()
-	return &ForHeightBuilder{cs: cs, height: cs.height, lock: &sync.Mutex{}}
+	return &StateBuilder{cs: cs, height: cs.height, lock: &sync.Mutex{}}
 }
 
 func (cs *ChainState) Height() int64 {
@@ -258,7 +258,7 @@ func (d *ProofData[T]) Val() *T {
 }
 
 type Manager[T any] struct {
-	stateCache   *utils.ExpiringConcurrentMap[int64, ProofData[T]]
+	stateCache   *utils.ConcurrentMap[int64, ProofData[T]]
 	newStateFunc utils.Function[int64, ProofData[T]]
 }
 

@@ -9,7 +9,6 @@ import (
 	"github.com/cosmos/relayer/v2/relayer/provider"
 	"main/relayer/client"
 	"main/relayer/client/paths"
-	"main/relayer/client/state"
 	"main/utils"
 )
 
@@ -45,7 +44,7 @@ func (r *Relayer) updateChains(height int64, source, dest *client.ChainClient) {
 
 }
 
-func (r *Relayer) ChanOpenInit(_ *state.ForHeightBuilder) *state.ForHeightBuilder {
+func (r *Relayer) ChanOpenInit() {
 
 	msgSupplier := utils.NewFuture[provider.RelayerMessage](
 		func() provider.RelayerMessage {
@@ -70,13 +69,14 @@ func (r *Relayer) ChanOpenInit(_ *state.ForHeightBuilder) *state.ForHeightBuilde
 		r.updateChains(resp.Height, r.dest, r.source)
 		fmt.Println("channel init")
 	}
-	return r.source.MaybePrependUpdateClientAndSend(r.dest.IBCHeader, msgSupplier.Get, respCb).WithChannelState()
+	r.source.MaybePrependUpdateClientAndSend(r.dest.IBCHeader, msgSupplier.Get, respCb)
 
 }
 
-func (r *Relayer) ChanOpenTry(cpStateBuilder *state.ForHeightBuilder) *state.ForHeightBuilder {
+func (r *Relayer) ChanOpenTry() {
 
-	chainState := cpStateBuilder.WithChannelState().Build()
+	chainState := r.source.StateBuilder().WithChannelState().Build()
+
 	msgSupplier := utils.NewFuture[provider.RelayerMessage](
 		func() provider.RelayerMessage {
 			getChannelState := chainState.Channel()
@@ -101,13 +101,13 @@ func (r *Relayer) ChanOpenTry(cpStateBuilder *state.ForHeightBuilder) *state.For
 		fmt.Println("channel tried")
 	}
 
-	return r.dest.MaybePrependUpdateClientAndSend(r.source.IBCHeader, msgSupplier.Get, respCb).WithChannelState()
+	r.dest.MaybePrependUpdateClientAndSend(r.source.IBCHeader, msgSupplier.Get, respCb)
 
 }
 
-func (r *Relayer) ChanOpenAck(cpStateBuilder *state.ForHeightBuilder) *state.ForHeightBuilder {
+func (r *Relayer) ChanOpenAck() {
 
-	chainState := cpStateBuilder.WithChannelState().Build()
+	chainState := r.dest.StateBuilder().WithChannelState().Build()
 
 	msgSupplier := utils.NewFuture[provider.RelayerMessage](
 		func() provider.RelayerMessage {
@@ -129,12 +129,12 @@ func (r *Relayer) ChanOpenAck(cpStateBuilder *state.ForHeightBuilder) *state.For
 		r.updateChains(resp.Height, r.dest, r.source)
 		fmt.Println("channel acked")
 	}
-	return r.source.MaybePrependUpdateClientAndSend(r.dest.IBCHeader, msgSupplier.Get, respCb).WithChannelState()
+	r.source.MaybePrependUpdateClientAndSend(r.dest.IBCHeader, msgSupplier.Get, respCb)
 
 }
 
-func (r *Relayer) ChanOpenConfirm(cpStateBuilder *state.ForHeightBuilder) *state.ForHeightBuilder {
-	chainState := cpStateBuilder.WithChannelState().Build()
+func (r *Relayer) ChanOpenConfirm() {
+	chainState := r.dest.StateBuilder().WithChannelState().Build()
 
 	msgSupplier := utils.NewFuture[provider.RelayerMessage](
 		func() provider.RelayerMessage {
@@ -154,13 +154,13 @@ func (r *Relayer) ChanOpenConfirm(cpStateBuilder *state.ForHeightBuilder) *state
 		r.updateChains(resp.Height, r.source, r.dest)
 		fmt.Println("channel confirmed")
 	}
-	return r.dest.MaybePrependUpdateClientAndSend(r.source.IBCHeader, msgSupplier.Get, respCb)
+	r.dest.MaybePrependUpdateClientAndSend(r.source.IBCHeader, msgSupplier.Get, respCb)
 
 }
 
-func (r *Relayer) ChanUpgradeTry(cpStateBuilder *state.ForHeightBuilder) *state.ForHeightBuilder {
+func (r *Relayer) ChanUpgradeTry() {
 
-	chainState := cpStateBuilder.WithChannelState().WithUpgradeState().Build()
+	chainState := r.source.StateBuilder().WithChannelState().WithUpgradeState().Build()
 
 	msgSupplier := utils.NewFuture[provider.RelayerMessage](
 		func() provider.RelayerMessage {
@@ -184,13 +184,13 @@ func (r *Relayer) ChanUpgradeTry(cpStateBuilder *state.ForHeightBuilder) *state.
 		r.updateChains(resp.Height, r.source, r.dest)
 		fmt.Println("upgrade tried acked")
 	}
-	return r.dest.MaybePrependUpdateClientAndSend(r.source.IBCHeader, msgSupplier.Get, respCb).WithChannelState().WithUpgradeState()
+	r.dest.MaybePrependUpdateClientAndSend(r.source.IBCHeader, msgSupplier.Get, respCb)
 
 }
 
-func (r *Relayer) ChanUpgradeAck(cpStateBuilder *state.ForHeightBuilder) *state.ForHeightBuilder {
+func (r *Relayer) ChanUpgradeAck() {
 
-	chainState := cpStateBuilder.WithChannelState().WithUpgradeState().Build()
+	chainState := r.dest.StateBuilder().WithChannelState().WithUpgradeState().Build()
 
 	msgSupplier := utils.NewFuture[provider.RelayerMessage](
 		func() provider.RelayerMessage {
@@ -213,13 +213,13 @@ func (r *Relayer) ChanUpgradeAck(cpStateBuilder *state.ForHeightBuilder) *state.
 		fmt.Println("channel upgrade acked")
 	}
 
-	return r.source.MaybePrependUpdateClientAndSend(r.dest.IBCHeader, msgSupplier.Get, respCb).WithChannelState().WithUpgradeState()
+	r.source.MaybePrependUpdateClientAndSend(r.dest.IBCHeader, msgSupplier.Get, respCb)
 
 }
 
-func (r *Relayer) ChanUpgradeConfirm(cpStateBuilder *state.ForHeightBuilder) *state.ForHeightBuilder {
+func (r *Relayer) ChanUpgradeConfirm() {
 
-	chainState := cpStateBuilder.WithChannelState().WithUpgradeState().Build()
+	chainState := r.source.StateBuilder().WithChannelState().WithUpgradeState().Build()
 
 	msgSupplier := utils.NewFuture[provider.RelayerMessage](
 		func() provider.RelayerMessage {
@@ -242,13 +242,13 @@ func (r *Relayer) ChanUpgradeConfirm(cpStateBuilder *state.ForHeightBuilder) *st
 		fmt.Println("upgrade confirmed")
 	}
 
-	return r.dest.MaybePrependUpdateClientAndSend(r.source.IBCHeader, msgSupplier.Get, respCb).WithChannelState()
+	r.dest.MaybePrependUpdateClientAndSend(r.source.IBCHeader, msgSupplier.Get, respCb)
 
 }
 
-func (r *Relayer) ChanUpgradeOpen(cpStateBuilder *state.ForHeightBuilder) *state.ForHeightBuilder {
+func (r *Relayer) ChanUpgradeOpen() {
 
-	chainState := cpStateBuilder.WithChannelState().Build()
+	chainState := r.dest.StateBuilder().WithChannelState().WithUpgradeState().Build()
 
 	msgSupplier := utils.NewFuture[provider.RelayerMessage](
 		func() provider.RelayerMessage {
@@ -271,6 +271,6 @@ func (r *Relayer) ChanUpgradeOpen(cpStateBuilder *state.ForHeightBuilder) *state
 		fmt.Println("channel upgrade opened")
 	}
 
-	return r.source.MaybePrependUpdateClientAndSend(r.dest.IBCHeader, msgSupplier.Get, respCb)
+	r.source.MaybePrependUpdateClientAndSend(r.dest.IBCHeader, msgSupplier.Get, respCb)
 
 }
