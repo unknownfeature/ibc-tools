@@ -96,13 +96,14 @@ func (r *Relayer) ChanOpenInit() {
 
 		fmt.Println("channel init")
 	}
-	r.source.MaybePrependUpdateClientAndSend(r.dest.IBCHeader, msgSupplier.Get, respCb)
+	r.source.MaybePrependUpdateClientAndSend(r.dest.Loader().Height(), r.dest.IBCHeader, msgSupplier.Get, respCb)
 
 }
 
 func (r *Relayer) ChanOpenTry() {
 
-	chainState := r.source.Loader().WithChannelState().Load()
+	loader := r.source.Loader()
+	chainState := loader.WithChannelState().Load()
 
 	msgSupplier := concurrent.SupplyAsync[provider.RelayerMessage](
 		func() provider.RelayerMessage {
@@ -130,13 +131,14 @@ func (r *Relayer) ChanOpenTry() {
 
 	}
 
-	r.dest.MaybePrependUpdateClientAndSend(r.source.IBCHeader, msgSupplier.Get, respCb)
+	r.dest.MaybePrependUpdateClientAndSend(loader.Height(), r.source.IBCHeader, msgSupplier.Get, respCb)
 
 }
 
 func (r *Relayer) ChanOpenAck() {
 
-	chainState := r.dest.Loader().WithChannelState().Load()
+	loader := r.dest.Loader()
+	chainState := loader.WithChannelState().Load()
 
 	msgSupplier := concurrent.SupplyAsync[provider.RelayerMessage](
 		func() provider.RelayerMessage {
@@ -159,12 +161,13 @@ func (r *Relayer) ChanOpenAck() {
 		fmt.Println("channel acked")
 		loader.WithChannelState()
 	}
-	r.source.MaybePrependUpdateClientAndSend(r.dest.IBCHeader, msgSupplier.Get, respCb)
+	r.source.MaybePrependUpdateClientAndSend(loader.Height(), r.dest.IBCHeader, msgSupplier.Get, respCb)
 
 }
 
 func (r *Relayer) ChanOpenConfirm() {
-	chainState := r.dest.Loader().WithChannelState().Load()
+	loader := r.dest.Loader()
+	chainState := loader.WithChannelState().Load()
 
 	msgSupplier := concurrent.SupplyAsync[provider.RelayerMessage](
 		func() provider.RelayerMessage {
@@ -186,13 +189,14 @@ func (r *Relayer) ChanOpenConfirm() {
 		loader.WithChannelState()
 
 	}
-	r.dest.MaybePrependUpdateClientAndSend(r.source.IBCHeader, msgSupplier.Get, respCb)
+	r.dest.MaybePrependUpdateClientAndSend(loader.Height(), r.source.IBCHeader, msgSupplier.Get, respCb)
 
 }
 
 func (r *Relayer) ChanUpgradeTry() {
 
-	chainState := r.source.Loader().WithChannelState().WithUpgradeState().Load()
+	loader := r.source.Loader()
+	chainState := loader.WithChannelState().WithUpgradeState().Load()
 
 	msgSupplier := concurrent.SupplyAsync[provider.RelayerMessage](
 		func() provider.RelayerMessage {
@@ -217,13 +221,14 @@ func (r *Relayer) ChanUpgradeTry() {
 		fmt.Println("upgrade tried acked")
 		loader.WithChannelState().WithUpgradeState()
 	}
-	r.dest.MaybePrependUpdateClientAndSend(r.source.IBCHeader, msgSupplier.Get, respCb)
+	r.dest.MaybePrependUpdateClientAndSend(loader.Height(), r.source.IBCHeader, msgSupplier.Get, respCb)
 
 }
 
 func (r *Relayer) ChanUpgradeAck() {
 
-	chainState := r.dest.Loader().WithChannelState().WithUpgradeState().Load()
+	loader := r.dest.Loader()
+	chainState := loader.WithChannelState().WithUpgradeState().Load()
 
 	msgSupplier := concurrent.SupplyAsync[provider.RelayerMessage](
 		func() provider.RelayerMessage {
@@ -248,13 +253,14 @@ func (r *Relayer) ChanUpgradeAck() {
 
 	}
 
-	r.source.MaybePrependUpdateClientAndSend(r.dest.IBCHeader, msgSupplier.Get, respCb)
+	r.source.MaybePrependUpdateClientAndSend(loader.Height(), r.dest.IBCHeader, msgSupplier.Get, respCb)
 
 }
 
 func (r *Relayer) ChanUpgradeConfirm() {
 
-	chainState := r.source.Loader().WithChannelState().WithUpgradeState().Load()
+	loader := r.source.Loader()
+	chainState := loader.WithChannelState().WithUpgradeState().Load()
 
 	msgSupplier := concurrent.SupplyAsync[provider.RelayerMessage](
 		func() provider.RelayerMessage {
@@ -279,13 +285,14 @@ func (r *Relayer) ChanUpgradeConfirm() {
 
 	}
 
-	r.dest.MaybePrependUpdateClientAndSend(r.source.IBCHeader, msgSupplier.Get, respCb)
+	r.dest.MaybePrependUpdateClientAndSend(loader.Height(), r.source.IBCHeader, msgSupplier.Get, respCb)
 
 }
 
 func (r *Relayer) ChanUpgradeOpen() {
 
-	chainState := r.dest.Loader().WithChannelState().WithUpgradeState().Load()
+	loader := r.dest.Loader()
+	chainState := loader.WithChannelState().WithUpgradeState().Load()
 
 	msgSupplier := concurrent.SupplyAsync[provider.RelayerMessage](
 		func() provider.RelayerMessage {
@@ -310,6 +317,6 @@ func (r *Relayer) ChanUpgradeOpen() {
 
 	}
 
-	r.source.MaybePrependUpdateClientAndSend(r.dest.IBCHeader, msgSupplier.Get, respCb)
+	r.source.MaybePrependUpdateClientAndSend(loader.Height(), r.dest.IBCHeader, msgSupplier.Get, respCb)
 
 }

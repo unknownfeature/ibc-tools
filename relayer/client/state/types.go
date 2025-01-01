@@ -136,6 +136,9 @@ type Loader struct {
 	height                     int64
 }
 
+func (b *Loader) Height() int64 {
+	return b.height
+}
 func (b *Loader) WithChannelState() *Loader {
 
 	return b.doIf(func() { b.channelState = b.cs.channelStateManager.Get(b.height) }, b.channelState == nil)
@@ -238,12 +241,6 @@ func (cs *ChainState) Height() int64 {
 	cs.lock.Lock()
 	defer cs.lock.Unlock()
 	return cs.height
-}
-
-func (cs *ChainState) SetHeight(height int64) {
-	cs.lock.Lock()
-	defer cs.lock.Unlock()
-	cs.height = height
 }
 
 type ProofData[T any] struct {

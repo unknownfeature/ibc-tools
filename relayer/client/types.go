@@ -65,8 +65,8 @@ func (cd *ChainClient) Loader() *state.Loader {
 	return cd.chainState.ForLatestHeight()
 }
 
-func (cd *ChainClient) MaybePrependUpdateClientAndSend(cpIBCHeaderSupplier func(int64) provider.IBCHeader, messageSupplier func() *provider.RelayerMessage, cb funcs.BiConsumer[*provider.RelayerTxResponse, *state.Loader]) {
-	cd.createUpdateClientMsgAndSend(cd.latestCpHeight, cpIBCHeaderSupplier, func(message *provider.RelayerMessage) {
+func (cd *ChainClient) MaybePrependUpdateClientAndSend(cpHeight int64, cpIBCHeaderSupplier func(int64) provider.IBCHeader, messageSupplier func() *provider.RelayerMessage, cb funcs.BiConsumer[*provider.RelayerTxResponse, *state.Loader]) {
+	cd.createUpdateClientMsgAndSend(cpHeight, cpIBCHeaderSupplier, func(message *provider.RelayerMessage) {
 		if message == nil {
 			cd.SendMessage(cd.ctx, messageSupplier(), "", cb)
 		} else {
@@ -88,7 +88,7 @@ func (cd *ChainClient) createUpdateClientMsgAndSend(cpHeight int64, cpIBCHeaderS
 
 	cd.latestCpHeight = int64(math.Max(float64(cpHeight), float64(cd.latestCpHeight)))
 
-	if int64(cs.Val().LatestHeight.RevisionHeight) == cpHeight+1 {
+	if int64(cs.Val().LatestHeight.RevisionHeight) >= cpHeight+1 {
 		cd.lock.Unlock()
 		respond(nil)
 		return
@@ -129,16 +129,18 @@ func (cd *ChainClient) stateLoaderFor(newHeight int64) *state.Loader {
 func (cd *ChainClient) SendMessage(ctx context.Context, msg *provider.RelayerMessage, memo string, cb ...func(*provider.RelayerTxResponse, *state.Loader)) {
 	resp, _, err := cd.chain.SendMessages(ctx, []provider.RelayerMessage{*msg}, memo)
 	funcs.HandleError(err)
+	loader := cd.stateLoaderFor(resp.Height).WithClientState()
 	if cb != nil {
-		cb[0](resp, cd.stateLoaderFor(resp.Height))
+		cb[0](resp, loader)
 	}
 }
 
 func (cd *ChainClient) SendMessages(ctx context.Context, msgs []provider.RelayerMessage, memo string, cb ...funcs.BiConsumer[*provider.RelayerTxResponse, *state.Loader]) {
 	resp, _, err := cd.chain.SendMessages(ctx, msgs, memo)
 	funcs.HandleError(err)
+	loader := cd.stateLoaderFor(resp.Height).WithClientState()
 	if cb != nil {
-		cb[0](resp, cd.stateLoaderFor(resp.Height))
+		cb[0](resp, loader)
 	}
 }
 
