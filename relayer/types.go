@@ -29,9 +29,11 @@ type Props struct {
 }
 
 func NewRelayer(ctx context.Context, cdc *codec.ProtoCodec, props *Props) *Relayer {
+	sourceHeight := utils.NewFuture[int64](utils.FuncWaitForTNoErrorAndReturn(ctx, props.SourceProvider.QueryLatestHeight))
+	destHeight := utils.NewFuture[int64](utils.FuncWaitForTNoErrorAndReturn(ctx, props.DestProvider.QueryLatestHeight))
 	r := &Relayer{
-		source:  client.NewChainClient(ctx, cdc, props.SourceProvider, props.Path.Source()),
-		dest:    client.NewChainClient(ctx, cdc, props.DestProvider, props.Path.Dest()),
+		source:  client.NewChainClient(ctx, cdc, props.SourceProvider, props.Path.Source(), sourceHeight, destHeight),
+		dest:    client.NewChainClient(ctx, cdc, props.DestProvider, props.Path.Dest(), destHeight, sourceHeight),
 		codec:   cdc,
 		path:    props.Path,
 		context: ctx,

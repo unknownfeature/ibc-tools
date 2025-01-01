@@ -138,3 +138,9 @@ func SubmitWithWaitGroup(task func(), wg *sync.WaitGroup) {
 		task()
 	}()
 }
+
+func FuncWaitForTNoErrorAndReturn[T any](ctx context.Context, resProvider func(ctx context.Context) (T, error)) func() T {
+	return func() T {
+		return WaitForTNoErrorAndReturn(ctx, resProvider)
+	}
+}

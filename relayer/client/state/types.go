@@ -3,6 +3,8 @@ package state
 import (
 	"context"
 	"github.com/cosmos/cosmos-sdk/codec"
+	ibcexported "github.com/cosmos/ibc-go/v8/modules/core/exported"
+
 	"github.com/cosmos/gogoproto/proto"
 	clienttypes "github.com/cosmos/ibc-go/v8/modules/core/02-client/types"
 	connectiontypes "github.com/cosmos/ibc-go/v8/modules/core/03-connection/types"
@@ -33,6 +35,16 @@ func readTendermintProofFunctionFactory[T any](ctx context.Context, chainProvide
 	}
 }
 
+func clientStateFunction(ctx context.Context, chainProvider *cosmos.CosmosProvider, pathEnd *paths.PathEnd) utils.Function[int64, ProofData[tmclient.ClientState]] {
+	return func(height int64) ProofData[tmclient.ClientState] {
+		var st ibcexported.ClientState
+		var err error
+		for st, err = chainProvider.QueryClientState(ctx, height+1, pathEnd.ClientId()); err != nil; {
+			st, err = chainProvider.QueryClientState(ctx, height+1, pathEnd.ClientId())
+		}
+		return ProofData[tmclient.ClientState]{val: st.(*tmclient.ClientState), proof: nil, height: clienttypes.Height{RevisionHeight: uint64(height)}}
+	}
+}
 func channelCreator() *chantypes.Channel {
 	return &chantypes.Channel{}
 }
@@ -204,14 +216,14 @@ type ChainState struct {
 	packetAcknowledgementStateManager *Manager[[]byte]
 }
 
-func NewChainState(ctx context.Context, cdc codec.Codec, chainProvider *cosmos.CosmosProvider, end *paths.PathEnd) *ChainState {
+func NewChainState(ctx context.Context, cdc codec.Codec, chainProvider *cosmos.CosmosProvider, end *paths.PathEnd, height int64) *ChainState {
 
 	return &ChainState{
-		height:                            utils.WaitForTNoErrorAndReturn(ctx, chainProvider.QueryLatestHeight),
+		height:                            height,
 		lock:                              &sync.Mutex{},
 		channelStateManager:               newStateManager(defaultCacheTTL, readTendermintProofFunctionFactory(ctx, chainProvider, channelKeySupplier(end), transformerForCreator(cdc, channelCreator))),
 		upgradeStateManager:               newStateManager(defaultCacheTTL, readTendermintProofFunctionFactory(ctx, chainProvider, upgradeKeySupplier(end), transformerForCreator(cdc, upgradeCreator))),
-		clientStateManager:                newStateManager(defaultCacheTTL, readTendermintProofFunctionFactory(ctx, chainProvider, clientStateKeySupplier(end), transformerForCreator(cdc, clientStateCreator))),
+		clientStateManager:                newStateManager(defaultCacheTTL, clientStateFunction(ctx, chainProvider, end)),
 		connectionStateManager:            newStateManager(defaultCacheTTL, readTendermintProofFunctionFactory(ctx, chainProvider, connectionKeySupplier(end), transformerForCreator(cdc, connectionStateCreator))),
 		packetCommitmentStateManager:      newStateManager[[]byte](defaultCacheTTL, readTendermintProofFunctionFactory[[]byte](ctx, chainProvider, packetCommitmentKeySupplier(end), noopTransformer[*[]byte])),
 		packetReceiptStateManager:         newStateManager[[]byte](defaultCacheTTL, readTendermintProofFunctionFactory[[]byte](ctx, chainProvider, packetReceiptKeySupplier(end), noopTransformer[*[]byte])),

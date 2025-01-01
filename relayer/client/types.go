@@ -25,7 +25,7 @@ type ChainClient struct {
 	latestCpHeight         int64
 }
 
-func NewChainClient(ctx context.Context, cdc *codec.ProtoCodec, chain *cosmos.CosmosProvider, pathEnd *paths.PathEnd) *ChainClient {
+func NewChainClient(ctx context.Context, cdc *codec.ProtoCodec, chain *cosmos.CosmosProvider, pathEnd *paths.PathEnd, latestHeight, latestCpHeight *utils.Future[int64]) *ChainClient {
 
 	addr, err := chain.Address()
 	utils.HandleError(err)
@@ -37,7 +37,8 @@ func NewChainClient(ctx context.Context, cdc *codec.ProtoCodec, chain *cosmos.Co
 		cdc:                    cdc,
 		lock:                   &sync.Mutex{},
 		processedClientUpdates: make(map[int64]bool),
-		chainState:             state.NewChainState(ctx, cdc, chain, pathEnd),
+		chainState:             state.NewChainState(ctx, cdc, chain, pathEnd, latestHeight.Get()),
+		latestCpHeight:         latestCpHeight.Get(),
 	}
 	return cd
 }
@@ -61,13 +62,19 @@ func (cd *ChainClient) createUpdateClientMsgAndSend(cpHeight int64, cpIBCHeaderS
 
 	cd.lock.Lock()
 	defer cd.lock.Unlock()
-	cs := cd.chainState.ForLatestHeight().WithClientState().Build().ClientState()()
 	if _, ok := cd.processedClientUpdates[cpHeight]; ok || cpHeight <= cd.latestCpHeight {
 
 		respond(nil)
+		return
 	}
+	cs := cd.chainState.ForLatestHeight().WithClientState().Build().ClientState()()
+
 	cd.latestCpHeight = cpHeight
 
+	if int64(cs.Val().LatestHeight.RevisionHeight) == cpHeight+1 {
+		respond(nil)
+		return
+	}
 	trustedHeader := utils.NewFuture[provider.IBCHeader](func() provider.IBCHeader {
 		return cpIBCHeaderSupplier(int64(cs.Val().LatestHeight.RevisionHeight))
 	})
