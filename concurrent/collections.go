@@ -4,7 +4,6 @@ import (
 	"main/funcs"
 	"main/funcs/optional"
 	"sync"
-	"time"
 )
 
 type ConcurrentMap[K comparable, V any] struct {
@@ -165,40 +164,4 @@ func (c ConcurrentMap[K, V]) callCallback(k K, v V, operation Operation) {
 			fun(Entry[K, V]{k, v}, operation)
 		}
 	}
-}
-
-func NewExpiringConcurrentMap[K comparable, V any](predicate funcs.BiPredicate[Entry[K, V], int]) *ConcurrentMap[K, V] {
-	timeAdded := make(map[K]int, 0)
-
-	onChange := func(en Entry[K, V], op Operation) {
-		if op == Put {
-			timeAdded[en.Key] = time.Now().Second()
-		} else if _, ok := timeAdded[en.Key]; ok && op == Delete {
-			delete(timeAdded, en.Key)
-		}
-
-	}
-	theMap := NewConcurrentMap[K, V](onChange)
-
-	go func() {
-		for {
-			theMap.DeleteIf(func(k K, v V) bool {
-
-				if theTime, ok := timeAdded[k]; ok {
-					return predicate(Entry[K, V]{k, v}, theTime)
-				}
-				return false
-			})
-		}
-	}()
-
-	return theMap
-}
-
-func NewExpiresAfterDurationConcurrentMap[K comparable, V any](expireAfter time.Duration) *ConcurrentMap[K, V] {
-	return NewExpiringConcurrentMap[K, V](func(e Entry[K, V], tm int) bool {
-		now := time.Now().Second()
-		return now-int(expireAfter.Seconds()) > tm
-
-	})
 }

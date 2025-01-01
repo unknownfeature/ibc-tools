@@ -2,7 +2,6 @@ package state
 
 import (
 	"context"
-	"fmt"
 	"github.com/cosmos/cosmos-sdk/codec"
 	"github.com/cosmos/gogoproto/proto"
 	clienttypes "github.com/cosmos/ibc-go/v8/modules/core/02-client/types"
@@ -14,7 +13,6 @@ import (
 	"main/concurrent"
 	"main/funcs"
 	"main/relayer/client/paths"
-	"main/utils"
 	"math"
 	"sync"
 	"time"
@@ -33,7 +31,7 @@ func clientSateProofLoader(ctx context.Context, chainProvider *cosmos.CosmosProv
 			return nil
 		}
 	}
-	return funcs.RetryCallAndReturn(factory)
+	return funcs.RetriableFunction(factory)
 
 }
 
@@ -49,7 +47,7 @@ func tendermintProofLoader[T any](ctx context.Context, chainProvider *cosmos.Cos
 			return nil
 		}
 	}
-	return funcs.RetryCallAndReturn(factory)
+	return funcs.RetriableFunction(factory)
 }
 
 func channelCreator() *chantypes.Channel {
@@ -69,7 +67,7 @@ func connectionStateCreator() *connectiontypes.ConnectionEnd {
 func transformerForCreator[T proto.Message](cdc codec.Codec, creator funcs.Supplier[T]) funcs.Function[[]byte, T] {
 	return func(bytes []byte) T {
 		res := creator()
-		utils.HandleError(cdc.Unmarshal(bytes, res))
+		funcs.HandleError(cdc.Unmarshal(bytes, res))
 		return res
 	}
 }
@@ -137,13 +135,13 @@ func (s *State) PacketAcknowledgementState() funcs.Supplier[*ProofData[[]byte]] 
 }
 
 type Loader struct {
-	channelState               *concurrent.Future[*ProofData[chantypes.Channel]]
-	upgradeState               *concurrent.Future[*ProofData[chantypes.Upgrade]]
-	clientState                *concurrent.Future[*ProofData[tmclient.ClientState]]
-	connectionState            *concurrent.Future[*ProofData[connectiontypes.ConnectionEnd]]
-	packetCommitmentState      *concurrent.Future[*ProofData[[]byte]]
-	packetReceiptState         *concurrent.Future[*ProofData[[]byte]]
-	packetAcknowledgementState *concurrent.Future[*ProofData[[]byte]]
+	channelState               *concurrent.Future[ProofData[chantypes.Channel]]
+	upgradeState               *concurrent.Future[ProofData[chantypes.Upgrade]]
+	clientState                *concurrent.Future[ProofData[tmclient.ClientState]]
+	connectionState            *concurrent.Future[ProofData[connectiontypes.ConnectionEnd]]
+	packetCommitmentState      *concurrent.Future[ProofData[[]byte]]
+	packetReceiptState         *concurrent.Future[ProofData[[]byte]]
+	packetAcknowledgementState *concurrent.Future[ProofData[[]byte]]
 	cs                         *ChainState
 	height                     int64
 	sealed                     bool
@@ -229,13 +227,13 @@ func NewChainState(ctx context.Context, cdc codec.Codec, chainProvider *cosmos.C
 	return &ChainState{
 		height:                            height,
 		lock:                              &sync.Mutex{},
-		channelStateManager:               newStateManager(defaultCacheTTL, tendermintProofLoader(ctx, chainProvider, channelKeySupplier(end), transformerForCreator(cdc, channelCreator))),
-		upgradeStateManager:               newStateManager(defaultCacheTTL, tendermintProofLoader(ctx, chainProvider, upgradeKeySupplier(end), transformerForCreator(cdc, upgradeCreator))),
-		clientStateManager:                newStateManager(defaultCacheTTL, clientSateProofLoader(ctx, chainProvider, end)),
-		connectionStateManager:            newStateManager(defaultCacheTTL, tendermintProofLoader(ctx, chainProvider, connectionKeySupplier(end), transformerForCreator(cdc, connectionStateCreator))),
-		packetCommitmentStateManager:      newStateManager[[]byte](defaultCacheTTL, tendermintProofLoader[[]byte](ctx, chainProvider, packetCommitmentKeySupplier(end), noopTransformer[*[]byte])),
-		packetReceiptStateManager:         newStateManager[[]byte](defaultCacheTTL, tendermintProofLoader[[]byte](ctx, chainProvider, packetReceiptKeySupplier(end), noopTransformer[*[]byte])),
-		packetAcknowledgementStateManager: newStateManager[[]byte](defaultCacheTTL, tendermintProofLoader[[]byte](ctx, chainProvider, packetAcknowledgementKeySupplier(end), noopTransformer[*[]byte])),
+		channelStateManager:               newStateManager(tendermintProofLoader(ctx, chainProvider, channelKeySupplier(end), transformerForCreator(cdc, channelCreator))),
+		upgradeStateManager:               newStateManager(tendermintProofLoader(ctx, chainProvider, upgradeKeySupplier(end), transformerForCreator(cdc, upgradeCreator))),
+		clientStateManager:                newStateManager(clientSateProofLoader(ctx, chainProvider, end)),
+		connectionStateManager:            newStateManager(tendermintProofLoader(ctx, chainProvider, connectionKeySupplier(end), transformerForCreator(cdc, connectionStateCreator))),
+		packetCommitmentStateManager:      newStateManager[[]byte](tendermintProofLoader[[]byte](ctx, chainProvider, packetCommitmentKeySupplier(end), noopTransformer[*[]byte])),
+		packetReceiptStateManager:         newStateManager[[]byte](tendermintProofLoader[[]byte](ctx, chainProvider, packetReceiptKeySupplier(end), noopTransformer[*[]byte])),
+		packetAcknowledgementStateManager: newStateManager[[]byte](tendermintProofLoader[[]byte](ctx, chainProvider, packetAcknowledgementKeySupplier(end), noopTransformer[*[]byte])),
 	}
 
 }
@@ -243,7 +241,6 @@ func NewChainState(ctx context.Context, cdc codec.Codec, chainProvider *cosmos.C
 func (cs *ChainState) ForHeight(height int64) *Loader {
 	cs.lock.Lock()
 	cs.height = int64(math.Max(float64(height), float64(cs.height)))
-	fmt.Println("new height", height)
 	cs.lock.Unlock()
 	return &Loader{cs: cs, height: height, lock: &sync.Mutex{}}
 }
@@ -282,17 +279,17 @@ type Manager[T any] struct {
 	newStateFunc funcs.Function[int64, ProofData[T]]
 }
 
-func newStateManager[T any](ttl time.Duration, stateFunc funcs.Function[int64, ProofData[T]]) *Manager[T] {
+func newStateManager[T any](loadFunction funcs.Function[int64, ProofData[T]]) *Manager[T] {
 
-	return &Manager[T]{
-		stateCache:   concurrent.NewExpiresAfterDurationConcurrentMap[int64, ProofData[T]](ttl),
-		newStateFunc: stateFunc,
+	return &Manager[T]{ // todo add purge
+		stateCache:   concurrent.NewConcurrentMap[int64, ProofData[T]](),
+		newStateFunc: loadFunction,
 	}
 }
 
-func (sk Manager[T]) Get(height int64) *concurrent.Future[*ProofData[T]] {
-	return concurrent.SupplyAsync[*ProofData[T]](func() *ProofData[T] {
+func (sk Manager[T]) Get(height int64) *concurrent.Future[ProofData[T]] {
+	return concurrent.SupplyAsync[ProofData[T]](func() ProofData[T] {
 		res := sk.stateCache.ComputeIfAbsent(height, sk.newStateFunc)
-		return &res
+		return res
 	})
 }

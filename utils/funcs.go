@@ -8,18 +8,19 @@ import (
 	chantypes "github.com/cosmos/ibc-go/v8/modules/core/04-channel/types"
 	"github.com/cosmos/relayer/v2/relayer/provider"
 	"io/fs"
+	"main/funcs"
 	"os"
 	"strconv"
 )
 
 func ReadSeedPhrase(path string) string {
 	file, err := os.Open(path)
-	HandleError(err)
+	funcs.HandleError(err)
 	defer file.Close()
 
 	decoder := json.NewDecoder(file)
 	var data map[string]string
-	HandleError(decoder.Decode(&data))
+	funcs.HandleError(decoder.Decode(&data))
 	return data["mnemonic"]
 }
 
@@ -32,12 +33,6 @@ func Exists(path string) (bool, error) {
 		return false, nil
 	}
 	return false, err
-}
-
-func HandleError(err error) {
-	if err != nil {
-		panic(err)
-	}
 }
 
 func ParseClientIDFromEvents(events []provider.RelayerEvent) string {
@@ -85,7 +80,7 @@ func ParseSequenceFromEvents(events []provider.RelayerEvent) uint64 {
 		for attributeKey, attributeValue := range event.Attributes {
 			if attributeKey == chantypes.AttributeKeySequence {
 				res, err := strconv.ParseUint(attributeValue, 10, 64)
-				HandleError(err)
+				funcs.HandleError(err)
 				return res
 			}
 		}

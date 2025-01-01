@@ -4,16 +4,16 @@ import (
 	"context"
 	connectiontypes "github.com/cosmos/ibc-go/v8/modules/core/03-connection/types"
 	chantypes "github.com/cosmos/ibc-go/v8/modules/core/04-channel/types"
+	"main/funcs"
 
 	"github.com/cosmos/relayer/v2/relayer/chains/cosmos"
-	"main/utils"
 )
 
 func QueryConnection(ctx context.Context, cp *cosmos.CosmosProvider, connectionId string) *connectiontypes.ConnectionEnd {
 	latestHeight, err := cp.QueryLatestHeight(ctx)
-	utils.HandleError(err)
+	funcs.HandleError(err)
 	resp, err := cp.QueryConnection(ctx, latestHeight, connectionId)
-	utils.HandleError(err)
+	funcs.HandleError(err)
 	return resp.Connection
 }
 func QueryChannels(ctx context.Context, cp *cosmos.CosmosProvider, nextKey []byte) ([]*chantypes.IdentifiedChannel, error) {
@@ -30,9 +30,9 @@ func QueryChannels(ctx context.Context, cp *cosmos.CosmosProvider, nextKey []byt
 
 func QueryChannel(ctx context.Context, cp *cosmos.CosmosProvider, port, chanId string) *chantypes.Channel {
 	height, err := cp.QueryLatestHeight(ctx)
-	utils.HandleError(err)
+	funcs.HandleError(err)
 	res, err := cp.QueryChannel(ctx, height, chanId, port)
-	utils.HandleError(err)
+	funcs.HandleError(err)
 
 	return res.Channel
 }

@@ -20,13 +20,14 @@ func LatestHeightLoaderFactory(ctx context.Context, cosmosProvider *cosmos.Cosmo
 		return func() error {
 			hdr, err := cosmosProvider.QueryLatestHeight(ctx)
 			if err != nil {
+				fmt.Println("error", err.Error())
 				return err
 			}
 			channel <- hdr
 			return nil
 		}
 	}
-	return funcs.RetrySupplyAndReturn[int64](factory)
+	return funcs.RetriableSupplier[int64](factory)
 }
 
 type Relayer struct {
@@ -57,8 +58,9 @@ func NewRelayer(ctx context.Context, cdc *codec.ProtoCodec, props *Props) *Relay
 		context: ctx,
 		version: props.Version,
 	}
-	r.updateChains(destHeight.Get(), r.source, r.dest)
-	r.updateChains(sourceHeight.Get(), r.dest, r.source)
+	fmt.Println("created relayer")
+	r.updateChains(*destHeight.Get(), r.source, r.dest)
+	r.updateChains(*sourceHeight.Get(), r.dest, r.source)
 
 	return r
 }
