@@ -20,6 +20,7 @@ func DoInLockAndReturn[T any](lock *sync.Mutex, cb funcs.Supplier[T]) T {
 
 func WaitForTheConditionToBecomeTrue[T any](resProvider func() T, predicate func(T) bool) T {
 	var res T
+
 	for res = resProvider(); !predicate(res); {
 		res = resProvider()
 	}

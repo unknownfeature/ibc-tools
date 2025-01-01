@@ -39,6 +39,7 @@ func (f *Future[T]) Get() *T {
 		select {
 		case f.res = <-f.resChan:
 			f.done = true
+			f.ticker.Stop()
 			return f.res
 		case <-f.ticker.C:
 			f.done = true

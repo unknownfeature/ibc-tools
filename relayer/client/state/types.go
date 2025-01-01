@@ -15,10 +15,7 @@ import (
 	"main/relayer/client/paths"
 	"math"
 	"sync"
-	"time"
 )
-
-var defaultCacheTTL = time.Second * 60
 
 func clientSateProofLoader(ctx context.Context, chainProvider *cosmos.CosmosProvider, pathEnd *paths.PathEnd) funcs.Function[int64, ProofData[tmclient.ClientState]] {
 	factory := func(resChan chan ProofData[tmclient.ClientState]) funcs.Function[int64, error] {
@@ -57,10 +54,6 @@ func upgradeCreator() *chantypes.Upgrade {
 	return &chantypes.Upgrade{}
 }
 
-func clientStateCreator() *tmclient.ClientState {
-	return &tmclient.ClientState{}
-}
-
 func connectionStateCreator() *connectiontypes.ConnectionEnd {
 	return &connectiontypes.ConnectionEnd{}
 }
@@ -76,9 +69,6 @@ func noopTransformer[T *[]byte](t []byte) T {
 	return &t
 }
 
-func clientStateKeySupplier(pathEnd *paths.PathEnd) funcs.Supplier[[]byte] {
-	return func() []byte { return host.FullClientStateKey(pathEnd.ClientId()) }
-}
 func connectionKeySupplier(pathEnd *paths.PathEnd) funcs.Supplier[[]byte] {
 	return func() []byte { return host.ConnectionKey(pathEnd.ConnId()) }
 }
@@ -144,51 +134,47 @@ type Loader struct {
 	packetAcknowledgementState *concurrent.Future[ProofData[[]byte]]
 	cs                         *ChainState
 	height                     int64
-	sealed                     bool
-	lock                       *sync.Mutex
 }
 
 func (b *Loader) WithChannelState() *Loader {
 
-	return b.doInLockIfNotSealedAndIf(func() { b.channelState = b.cs.channelStateManager.Get(b.height) }, b.channelState == nil)
+	return b.doIf(func() { b.channelState = b.cs.channelStateManager.Get(b.height) }, b.channelState == nil)
 }
 
 func (b *Loader) WithUpgradeState() *Loader {
 
-	return b.doInLockIfNotSealedAndIf(func() { b.upgradeState = b.cs.upgradeStateManager.Get(b.height) }, b.upgradeState == nil)
+	return b.doIf(func() { b.upgradeState = b.cs.upgradeStateManager.Get(b.height) }, b.upgradeState == nil)
 }
 
 func (b *Loader) WithClientState() *Loader {
 
-	return b.doInLockIfNotSealedAndIf(func() { b.clientState = b.cs.clientStateManager.Get(b.height) }, b.clientState == nil)
+	return b.doIf(func() { b.clientState = b.cs.clientStateManager.Get(b.height) }, b.clientState == nil)
 }
 func (b *Loader) WithConnectionState() *Loader {
 
-	return b.doInLockIfNotSealedAndIf(func() { b.connectionState = b.cs.connectionStateManager.Get(b.height) }, b.connectionState == nil)
+	return b.doIf(func() { b.connectionState = b.cs.connectionStateManager.Get(b.height) }, b.connectionState == nil)
 }
 
-func (b *Loader) WithPacketCommitmentStatee() *Loader {
+func (b *Loader) WithPacketCommitmentState() *Loader {
 
-	return b.doInLockIfNotSealedAndIf(func() { b.packetCommitmentState = b.cs.packetCommitmentStateManager.Get(b.height) }, b.packetCommitmentState == nil)
-
-}
-func (b *Loader) WithPacketReceiptStatee() *Loader {
-
-	return b.doInLockIfNotSealedAndIf(func() { b.packetReceiptState = b.cs.packetReceiptStateManager.Get(b.height) }, b.packetReceiptState == nil)
+	return b.doIf(func() { b.packetCommitmentState = b.cs.packetCommitmentStateManager.Get(b.height) }, b.packetCommitmentState == nil)
 
 }
+func (b *Loader) WithPacketReceiptState() *Loader {
 
-func (b *Loader) WithPacketAcknowledgementStatee() *Loader {
+	return b.doIf(func() { b.packetReceiptState = b.cs.packetReceiptStateManager.Get(b.height) }, b.packetReceiptState == nil)
 
-	return b.doInLockIfNotSealedAndIf(func() { b.packetAcknowledgementState = b.cs.packetAcknowledgementStateManager.Get(b.height) },
+}
+
+func (b *Loader) WithPacketAcknowledgementState() *Loader {
+
+	return b.doIf(func() { b.packetAcknowledgementState = b.cs.packetAcknowledgementStateManager.Get(b.height) },
 		b.packetAcknowledgementState == nil)
 
 }
 
-func (b *Loader) doInLockIfNotSealedAndIf(whatToDo func(), condition bool) *Loader {
-	b.lock.Lock()
-	defer b.lock.Unlock()
-	if b.sealed || !condition {
+func (b *Loader) doIf(whatToDo func(), condition bool) *Loader {
+	if !condition {
 		return b
 	}
 	whatToDo()
@@ -196,9 +182,7 @@ func (b *Loader) doInLockIfNotSealedAndIf(whatToDo func(), condition bool) *Load
 }
 
 func (b *Loader) Load() *State {
-	b.lock.Lock()
-	defer b.lock.Unlock()
-	b.sealed = true
+
 	return &State{
 		channelState:               b.channelState.Get,
 		upgradeState:               b.upgradeState.Get,
@@ -240,20 +224,26 @@ func NewChainState(ctx context.Context, cdc codec.Codec, chainProvider *cosmos.C
 
 func (cs *ChainState) ForHeight(height int64) *Loader {
 	cs.lock.Lock()
+	defer cs.lock.Unlock()
 	cs.height = int64(math.Max(float64(height), float64(cs.height)))
-	cs.lock.Unlock()
-	return &Loader{cs: cs, height: height, lock: &sync.Mutex{}}
+	return &Loader{cs: cs, height: cs.height}
 }
 
 func (cs *ChainState) ForLatestHeight() *Loader {
 	cs.lock.Lock()
-	cs.lock.Unlock()
-	return &Loader{cs: cs, height: cs.height, lock: &sync.Mutex{}}
+	defer cs.lock.Unlock()
+	return &Loader{cs: cs, height: cs.height}
 }
 func (cs *ChainState) Height() int64 {
 	cs.lock.Lock()
-	cs.lock.Unlock()
+	defer cs.lock.Unlock()
 	return cs.height
+}
+
+func (cs *ChainState) SetHeight(height int64) {
+	cs.lock.Lock()
+	defer cs.lock.Unlock()
+	cs.height = height
 }
 
 type ProofData[T any] struct {
@@ -275,21 +265,20 @@ func (d *ProofData[T]) Val() *T {
 }
 
 type Manager[T any] struct {
-	stateCache   *concurrent.ConcurrentMap[int64, ProofData[T]]
-	newStateFunc funcs.Function[int64, ProofData[T]]
+	stateCache   *concurrent.ConcurrentMap[int64, *concurrent.Future[ProofData[T]]]
+	newStateFunc funcs.Function[int64, *concurrent.Future[ProofData[T]]]
 }
 
 func newStateManager[T any](loadFunction funcs.Function[int64, ProofData[T]]) *Manager[T] {
 
 	return &Manager[T]{ // todo add purge
-		stateCache:   concurrent.NewConcurrentMap[int64, ProofData[T]](),
-		newStateFunc: loadFunction,
+		stateCache: concurrent.NewConcurrentMap[int64, *concurrent.Future[ProofData[T]]](),
+		newStateFunc: func(height int64) *concurrent.Future[ProofData[T]] {
+			return concurrent.SupplyAsync(func() ProofData[T] { return loadFunction(height) })
+		},
 	}
 }
 
 func (sk Manager[T]) Get(height int64) *concurrent.Future[ProofData[T]] {
-	return concurrent.SupplyAsync[ProofData[T]](func() ProofData[T] {
-		res := sk.stateCache.ComputeIfAbsent(height, sk.newStateFunc)
-		return res
-	})
+	return sk.stateCache.ComputeIfAbsent(height, sk.newStateFunc)
 }

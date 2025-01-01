@@ -9,6 +9,7 @@ import (
 	"main/funcs"
 	"main/relayer/client/paths"
 	"main/relayer/client/state"
+	"math"
 	"sync"
 )
 
@@ -78,17 +79,17 @@ func (cd *ChainClient) MaybePrependUpdateClientAndSend(cpIBCHeaderSupplier func(
 func (cd *ChainClient) createUpdateClientMsgAndSend(cpHeight int64, cpIBCHeaderSupplier func(int64) provider.IBCHeader, respond funcs.Consumer[*provider.RelayerMessage]) {
 
 	cd.lock.Lock()
-	defer cd.lock.Unlock()
-	if _, ok := cd.processedClientUpdates[cpHeight]; ok || cpHeight < cd.latestCpHeight {
-
+	if _, ok := cd.processedClientUpdates[cpHeight]; ok {
+		cd.lock.Unlock()
 		respond(nil)
 		return
 	}
 	cs := cd.chainState.ForLatestHeight().WithClientState().Load().ClientState()()
 
-	cd.latestCpHeight = cpHeight
+	cd.latestCpHeight = int64(math.Max(float64(cpHeight), float64(cd.latestCpHeight)))
 
 	if int64(cs.Val().LatestHeight.RevisionHeight) == cpHeight+1 {
+		cd.lock.Unlock()
 		respond(nil)
 		return
 	}
@@ -103,6 +104,7 @@ func (cd *ChainClient) createUpdateClientMsgAndSend(cpHeight int64, cpIBCHeaderS
 	cuMsg, err := cd.chain.MsgUpdateClient(cd.pathEnd.ClientId(), hdr)
 	funcs.HandleError(err)
 	cd.processedClientUpdates[cpHeight] = true
+	cd.lock.Unlock()
 	respond(&cuMsg)
 }
 

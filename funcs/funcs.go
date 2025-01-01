@@ -43,3 +43,12 @@ func HandleErrorAsync(supplier Supplier[error], errorHandler ...Consumer[error])
 		HandleError(err)
 	}
 }
+
+func WaitForTheConditionToBecomeTrue[T any](resProvider func() T, predicate func(T) bool) T {
+	var res T
+
+	for res = resProvider(); !predicate(res); {
+		res = resProvider()
+	}
+	return res
+}
