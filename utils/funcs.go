@@ -1,63 +1,95 @@
 package utils
 
-type Supplier[T any] func() T
-type Consumer[T any] func(T)
-type Function[T, K any] func(T) K
-type BiFunction[T, K, L any] func(T, K) L
-type Predicate[T any] Function[T, bool]
-type BiPredicate[T, K any] BiFunction[T, K, bool]
-type BiConsumer[T, K any] func(T, K)
-type Comparator[T any] BiFunction[T, T, int]
-type Reducer[T any] BiFunction[*T, *T, *T]
+import (
+	"encoding/json"
+	"errors"
+	clienttypes "github.com/cosmos/ibc-go/v8/modules/core/02-client/types"
+	connectiontypes "github.com/cosmos/ibc-go/v8/modules/core/03-connection/types"
+	chantypes "github.com/cosmos/ibc-go/v8/modules/core/04-channel/types"
+	"github.com/cosmos/relayer/v2/relayer/provider"
+	"io/fs"
+	"os"
+	"strconv"
+)
 
-//func Chain[T, K, V any](first Function[V, T], second Function[T, K]) Function[V, K] {
-//	return func(Val V) K {
-//		return second(first(Val))
-//	}
-//}
+func ReadSeedPhrase(path string) string {
+	file, err := os.Open(path)
+	HandleError(err)
+	defer file.Close()
 
-func Identity[T any](t T) T {
-	return t
+	decoder := json.NewDecoder(file)
+	var data map[string]string
+	HandleError(decoder.Decode(&data))
+	return data["mnemonic"]
 }
 
-func NewInt64Comparator() Comparator[int64] {
-	return func(i int64, i2 int64) int {
-		return int(i - i2)
+func Exists(path string) (bool, error) {
+	_, err := os.Stat(path)
+	if err == nil {
+		return true, nil
+	}
+	if errors.Is(err, fs.ErrNotExist) {
+		return false, nil
+	}
+	return false, err
+}
+
+func HandleError(err error) {
+	if err != nil {
+		panic(err)
 	}
 }
 
-func Max[T any](one, two T, comp Comparator[T]) T {
-	if comp(one, two) > 0 {
-		return one
+func ParseClientIDFromEvents(events []provider.RelayerEvent) string {
+	for _, event := range events {
+		if event.EventType == clienttypes.EventTypeCreateClient {
+			for attributeKey, attributeValue := range event.Attributes {
+				if attributeKey == clienttypes.AttributeKeyClientID {
+					return attributeValue
+				}
+			}
+		}
 	}
-	return two
+
+	panic("client identifier event attribute not found")
 }
 
-type Optional[T any] struct {
-	val *T
-}
-
-func NewEmpty[T any]() Optional[T] {
-	return Optional[T]{}
-}
-
-func NewWithValue[T any](val *T) Optional[T] {
-	if val == nil {
-		return NewEmpty[T]()
+func ParseConnectionIDFromEvents(events []provider.RelayerEvent) string {
+	for _, event := range events {
+		if event.EventType == connectiontypes.EventTypeConnectionOpenInit || event.EventType == connectiontypes.EventTypeConnectionOpenTry {
+			for attributeKey, attributeValue := range event.Attributes {
+				if attributeKey == connectiontypes.AttributeKeyConnectionID {
+					return attributeValue
+				}
+			}
+		}
 	}
-	return Optional[T]{val: val}
+	panic("connection identifier event attribute not found")
 }
 
-func (o Optional[T]) If(consumer Consumer[T]) {
-	if o.val != nil {
-		consumer(*o.val)
+func ParseChannelIDFromEvents(events []provider.RelayerEvent) string {
+	for _, event := range events {
+		if event.EventType == chantypes.EventTypeChannelOpenInit || event.EventType == chantypes.EventTypeChannelOpenTry {
+			for attributeKey, attributeValue := range event.Attributes {
+				if attributeKey == chantypes.AttributeKeyChannelID {
+					return attributeValue
+				}
+			}
+		}
 	}
+	panic("channel identifier event attribute not found")
 }
-
-func (o Optional[T]) IsPresent() bool {
-	return o.val != nil
-}
-
-func (o Optional[T]) Get() *T {
-	return o.val
+func ParseSequenceFromEvents(events []provider.RelayerEvent) uint64 {
+	for _, event := range events {
+		//if event.EventType == chantypes.EventTypeChannelOpenInit || event.EventType == chantypes.EventTypeChannelOpenTry {
+		for attributeKey, attributeValue := range event.Attributes {
+			if attributeKey == chantypes.AttributeKeySequence {
+				res, err := strconv.ParseUint(attributeValue, 10, 64)
+				HandleError(err)
+				return res
+			}
+		}
+		//}
+	}
+	panic("channel identifier event attribute not found")
 }

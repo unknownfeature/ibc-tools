@@ -8,6 +8,7 @@ require (
 	github.com/cosmos/ibc-go/v8 v8.2.0
 	github.com/cosmos/relayer/v2 v2.6.0-rc.1
 	go.uber.org/zap v1.26.0
+	github.com/avast/retry-go v3.0.0+incompatible
 )
 
 require (

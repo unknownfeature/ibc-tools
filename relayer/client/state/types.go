@@ -2,16 +2,19 @@ package state
 
 import (
 	"context"
+	"fmt"
+	"github.com/avast/retry-go"
 	"github.com/cosmos/cosmos-sdk/codec"
-	ibcexported "github.com/cosmos/ibc-go/v8/modules/core/exported"
-
 	"github.com/cosmos/gogoproto/proto"
 	clienttypes "github.com/cosmos/ibc-go/v8/modules/core/02-client/types"
 	connectiontypes "github.com/cosmos/ibc-go/v8/modules/core/03-connection/types"
 	chantypes "github.com/cosmos/ibc-go/v8/modules/core/04-channel/types"
 	host "github.com/cosmos/ibc-go/v8/modules/core/24-host"
+	ibcexported "github.com/cosmos/ibc-go/v8/modules/core/exported"
 	tmclient "github.com/cosmos/ibc-go/v8/modules/light-clients/07-tendermint"
 	"github.com/cosmos/relayer/v2/relayer/chains/cosmos"
+	concurrent2 "main/concurrent"
+	"main/funcs"
 	"main/relayer/client/paths"
 	"main/utils"
 	"math"
@@ -21,21 +24,48 @@ import (
 
 var defaultCacheTTL = time.Second * 60
 
-func readTendermintProofFunctionFactory[T any](ctx context.Context, chainProvider *cosmos.CosmosProvider, keySupplier utils.Supplier[[]byte], transformer utils.Function[[]byte, *T]) utils.Function[int64, ProofData[T]] {
+func retriableProofLoader[T any](defaultProofLoadingFunctionFactory funcs.Function[chan ProofData[T], funcs.Function[int64, error]]) funcs.Function[int64, ProofData[T]] {
 	return func(height int64) ProofData[T] {
-		var val, proof []byte
-		var err error
-		var proofHeight clienttypes.Height
-		for val, proof, proofHeight, err = chainProvider.QueryTendermintProof(ctx, height+1, keySupplier()); err != nil; {
-			val, proof, proofHeight, err = chainProvider.QueryTendermintProof(ctx, height+1, keySupplier())
-		}
+		resChan := make(chan ProofData[T], 0)
+		proofLoader := defaultProofLoadingFunctionFactory(resChan)
+		utils.HandleError(retry.Do(func() error { return proofLoader(height) }))
 
-		return ProofData[T]{val: transformer(val), proof: proof, height: proofHeight}
-
+		return <-resChan
 	}
 }
 
-func clientStateFunction(ctx context.Context, chainProvider *cosmos.CosmosProvider, pathEnd *paths.PathEnd) utils.Function[int64, ProofData[tmclient.ClientState]] {
+func defaultProofLoadingFunctionFactory[T any](ctx context.Context, chainProvider *cosmos.CosmosProvider, keySupplier funcs.Supplier[[]byte], transformer funcs.Function[[]byte, *T]) funcs.Function[chan ProofData[T], funcs.Function[int64, error]] {
+	return func(resChan chan ProofData[T]) funcs.Function[int64, error] {
+		return func(height int64) error {
+			val, proof, proofHeight, err := chainProvider.QueryTendermintProof(ctx, height+1, keySupplier())
+			if err != nil {
+				return err
+			}
+			resChan <- ProofData[T]{val: transformer(val), proof: proof, height: proofHeight}
+			return nil
+		}
+	}
+}
+
+func clientSateProofLoadingFunctionFactory(ctx context.Context, chainProvider *cosmos.CosmosProvider, pathEnd *paths.PathEnd) funcs.Function[chan ProofData[tmclient.ClientState], funcs.Function[int64, error]] {
+	return retriableProofLoader[tmclient.ClientState](func(resChan chan ProofData[tmclient.ClientState]) funcs.Function[int64, error] {
+		return func(height int64) error {
+			st, err := chainProvider.QueryClientState(ctx, height+1, pathEnd.ClientId())
+			if err != nil {
+				return err
+			}
+			resChan <- ProofData[tmclient.ClientState]{val: st.(*tmclient.ClientState), proof: nil, height: clienttypes.Height{RevisionHeight: uint64(height)}}
+			return nil
+		}
+	})
+
+}
+
+func readTendermintProofFunctionFactory[T any](ctx context.Context, chainProvider *cosmos.CosmosProvider, keySupplier funcs.Supplier[[]byte], transformer funcs.Function[[]byte, *T]) funcs.Function[int64, ProofData[T]] {
+	return retriableProofLoader[T](defaultProofLoadingFunctionFactory[T](ctx, chainProvider, keySupplier, transformer))
+}
+
+func clientStateFunction(ctx context.Context, chainProvider *cosmos.CosmosProvider, pathEnd *paths.PathEnd) funcs.Function[int64, ProofData[tmclient.ClientState]] {
 	return func(height int64) ProofData[tmclient.ClientState] {
 		var st ibcexported.ClientState
 		var err error
@@ -59,7 +89,7 @@ func clientStateCreator() *tmclient.ClientState {
 func connectionStateCreator() *connectiontypes.ConnectionEnd {
 	return &connectiontypes.ConnectionEnd{}
 }
-func transformerForCreator[T proto.Message](cdc codec.Codec, creator utils.Supplier[T]) utils.Function[[]byte, T] {
+func transformerForCreator[T proto.Message](cdc codec.Codec, creator funcs.Supplier[T]) funcs.Function[[]byte, T] {
 	return func(bytes []byte) T {
 		res := creator()
 		utils.HandleError(cdc.Unmarshal(bytes, res))
@@ -71,116 +101,116 @@ func noopTransformer[T *[]byte](t []byte) T {
 	return &t
 }
 
-func clientStateKeySupplier(pathEnd *paths.PathEnd) utils.Supplier[[]byte] {
+func clientStateKeySupplier(pathEnd *paths.PathEnd) funcs.Supplier[[]byte] {
 	return func() []byte { return host.FullClientStateKey(pathEnd.ClientId()) }
 }
-func connectionKeySupplier(pathEnd *paths.PathEnd) utils.Supplier[[]byte] {
+func connectionKeySupplier(pathEnd *paths.PathEnd) funcs.Supplier[[]byte] {
 	return func() []byte { return host.ConnectionKey(pathEnd.ConnId()) }
 }
-func channelKeySupplier(pathEnd *paths.PathEnd) utils.Supplier[[]byte] {
+func channelKeySupplier(pathEnd *paths.PathEnd) funcs.Supplier[[]byte] {
 	return func() []byte { return host.ChannelKey(pathEnd.Port(), pathEnd.ChanId()) }
 }
 
-func packetCommitmentKeySupplier(pathEnd *paths.PathEnd) utils.Supplier[[]byte] {
+func packetCommitmentKeySupplier(pathEnd *paths.PathEnd) funcs.Supplier[[]byte] {
 	return func() []byte { return host.PacketCommitmentKey(pathEnd.Port(), pathEnd.ChanId(), pathEnd.Seq()) }
 }
-func packetReceiptKeySupplier(pathEnd *paths.PathEnd) utils.Supplier[[]byte] {
+func packetReceiptKeySupplier(pathEnd *paths.PathEnd) funcs.Supplier[[]byte] {
 	return func() []byte { return host.PacketReceiptKey(pathEnd.Port(), pathEnd.ChanId(), pathEnd.Seq()) }
 }
-func packetAcknowledgementKeySupplier(pathEnd *paths.PathEnd) utils.Supplier[[]byte] {
+func packetAcknowledgementKeySupplier(pathEnd *paths.PathEnd) funcs.Supplier[[]byte] {
 	return func() []byte { return host.PacketAcknowledgementKey(pathEnd.Port(), pathEnd.ChanId(), pathEnd.Seq()) }
 }
-func upgradeKeySupplier(pathEnd *paths.PathEnd) utils.Supplier[[]byte] {
-	return func() []byte { return host.ChannelKey(pathEnd.Port(), pathEnd.ChanId()) }
+func upgradeKeySupplier(pathEnd *paths.PathEnd) funcs.Supplier[[]byte] {
+	return func() []byte { return host.ChannelUpgradeKey(pathEnd.Port(), pathEnd.ChanId()) }
 }
 
 type State struct {
-	channelState               utils.Supplier[*ProofData[chantypes.Channel]]
-	upgradeState               utils.Supplier[*ProofData[chantypes.Upgrade]]
-	clientState                utils.Supplier[*ProofData[tmclient.ClientState]]
-	connectionState            utils.Supplier[*ProofData[connectiontypes.ConnectionEnd]]
-	packetCommitmentState      utils.Supplier[*ProofData[[]byte]]
-	packetReceiptState         utils.Supplier[*ProofData[[]byte]]
-	packetAcknowledgementState utils.Supplier[*ProofData[[]byte]]
+	channelState               funcs.Supplier[*ProofData[chantypes.Channel]]
+	upgradeState               funcs.Supplier[*ProofData[chantypes.Upgrade]]
+	clientState                funcs.Supplier[*ProofData[tmclient.ClientState]]
+	connectionState            funcs.Supplier[*ProofData[connectiontypes.ConnectionEnd]]
+	packetCommitmentState      funcs.Supplier[*ProofData[[]byte]]
+	packetReceiptState         funcs.Supplier[*ProofData[[]byte]]
+	packetAcknowledgementState funcs.Supplier[*ProofData[[]byte]]
 }
 
-func (s *State) Channel() utils.Supplier[*ProofData[chantypes.Channel]] {
+func (s *State) Channel() funcs.Supplier[*ProofData[chantypes.Channel]] {
 	return s.channelState
 }
-func (s *State) Upgrade() utils.Supplier[*ProofData[chantypes.Upgrade]] {
+func (s *State) Upgrade() funcs.Supplier[*ProofData[chantypes.Upgrade]] {
 	return s.upgradeState
 }
-func (s *State) ClientState() utils.Supplier[*ProofData[tmclient.ClientState]] {
+func (s *State) ClientState() funcs.Supplier[*ProofData[tmclient.ClientState]] {
 	return s.clientState
 }
-func (s *State) ConnectionState() utils.Supplier[*ProofData[connectiontypes.ConnectionEnd]] {
+func (s *State) ConnectionState() funcs.Supplier[*ProofData[connectiontypes.ConnectionEnd]] {
 	return s.connectionState
 }
 
-func (s *State) PacketCommitmentState() utils.Supplier[*ProofData[[]byte]] {
+func (s *State) PacketCommitmentState() funcs.Supplier[*ProofData[[]byte]] {
 	return s.packetCommitmentState
 }
 
-func (s *State) PacketReceiptState() utils.Supplier[*ProofData[[]byte]] {
+func (s *State) PacketReceiptState() funcs.Supplier[*ProofData[[]byte]] {
 	return s.packetReceiptState
 }
 
-func (s *State) PacketAcknowledgementState() utils.Supplier[*ProofData[[]byte]] {
+func (s *State) PacketAcknowledgementState() funcs.Supplier[*ProofData[[]byte]] {
 	return s.packetAcknowledgementState
 }
 
-type StateBuilder struct {
-	channelState               *utils.Future[*ProofData[chantypes.Channel]]
-	upgradeState               *utils.Future[*ProofData[chantypes.Upgrade]]
-	clientState                *utils.Future[*ProofData[tmclient.ClientState]]
-	connectionState            *utils.Future[*ProofData[connectiontypes.ConnectionEnd]]
-	packetCommitmentState      *utils.Future[*ProofData[[]byte]]
-	packetReceiptState         *utils.Future[*ProofData[[]byte]]
-	packetAcknowledgementState *utils.Future[*ProofData[[]byte]]
+type StateLoader struct {
+	channelState               *concurrent2.Future[*ProofData[chantypes.Channel]]
+	upgradeState               *concurrent2.Future[*ProofData[chantypes.Upgrade]]
+	clientState                *concurrent2.Future[*ProofData[tmclient.ClientState]]
+	connectionState            *concurrent2.Future[*ProofData[connectiontypes.ConnectionEnd]]
+	packetCommitmentState      *concurrent2.Future[*ProofData[[]byte]]
+	packetReceiptState         *concurrent2.Future[*ProofData[[]byte]]
+	packetAcknowledgementState *concurrent2.Future[*ProofData[[]byte]]
 	cs                         *ChainState
 	height                     int64
 	sealed                     bool
 	lock                       *sync.Mutex
 }
 
-func (b *StateBuilder) WithChannelState() *StateBuilder {
+func (b *StateLoader) WithChannelState() *StateLoader {
 
 	return b.doInLockIfNotSealedAndIf(func() { b.channelState = b.cs.channelStateManager.Get(b.height) }, b.channelState == nil)
 }
 
-func (b *StateBuilder) WithUpgradeState() *StateBuilder {
+func (b *StateLoader) WithUpgradeState() *StateLoader {
 
 	return b.doInLockIfNotSealedAndIf(func() { b.upgradeState = b.cs.upgradeStateManager.Get(b.height) }, b.upgradeState == nil)
 }
 
-func (b *StateBuilder) WithClientState() *StateBuilder {
+func (b *StateLoader) WithClientState() *StateLoader {
 
 	return b.doInLockIfNotSealedAndIf(func() { b.clientState = b.cs.clientStateManager.Get(b.height) }, b.clientState == nil)
 }
-func (b *StateBuilder) WithConnectionState() *StateBuilder {
+func (b *StateLoader) WithConnectionState() *StateLoader {
 
 	return b.doInLockIfNotSealedAndIf(func() { b.connectionState = b.cs.connectionStateManager.Get(b.height) }, b.connectionState == nil)
 }
 
-func (b *StateBuilder) WithPacketCommitmentStatee() *StateBuilder {
+func (b *StateLoader) WithPacketCommitmentStatee() *StateLoader {
 
 	return b.doInLockIfNotSealedAndIf(func() { b.packetCommitmentState = b.cs.packetCommitmentStateManager.Get(b.height) }, b.packetCommitmentState == nil)
 
 }
-func (b *StateBuilder) WithPacketReceiptStatee() *StateBuilder {
+func (b *StateLoader) WithPacketReceiptStatee() *StateLoader {
 
 	return b.doInLockIfNotSealedAndIf(func() { b.packetReceiptState = b.cs.packetReceiptStateManager.Get(b.height) }, b.packetReceiptState == nil)
 
 }
 
-func (b *StateBuilder) WithPacketAcknowledgementStatee() *StateBuilder {
+func (b *StateLoader) WithPacketAcknowledgementStatee() *StateLoader {
 
 	return b.doInLockIfNotSealedAndIf(func() { b.packetAcknowledgementState = b.cs.packetAcknowledgementStateManager.Get(b.height) },
 		b.packetAcknowledgementState == nil)
 
 }
 
-func (b *StateBuilder) doInLockIfNotSealedAndIf(whatToDo func(), condition bool) *StateBuilder {
+func (b *StateLoader) doInLockIfNotSealedAndIf(whatToDo func(), condition bool) *StateLoader {
 	b.lock.Lock()
 	defer b.lock.Unlock()
 	if b.sealed || !condition {
@@ -189,7 +219,7 @@ func (b *StateBuilder) doInLockIfNotSealedAndIf(whatToDo func(), condition bool)
 	whatToDo()
 	return b
 }
-func (b *StateBuilder) Build() *State {
+func (b *StateLoader) Load() *State {
 	b.lock.Lock()
 	defer b.lock.Unlock()
 	b.sealed = true
@@ -232,19 +262,19 @@ func NewChainState(ctx context.Context, cdc codec.Codec, chainProvider *cosmos.C
 
 }
 
-func (cs *ChainState) ForHeight(height int64) *StateBuilder {
+func (cs *ChainState) ForHeight(height int64) *StateLoader {
 	cs.lock.Lock()
 	cs.height = int64(math.Max(float64(height), float64(cs.height)))
+	fmt.Println("new height", height)
 	cs.lock.Unlock()
-	return &StateBuilder{cs: cs, height: height, lock: &sync.Mutex{}}
+	return &StateLoader{cs: cs, height: height, lock: &sync.Mutex{}}
 }
 
-func (cs *ChainState) ForLatestHeight() *StateBuilder {
+func (cs *ChainState) ForLatestHeight() *StateLoader {
 	cs.lock.Lock()
 	cs.lock.Unlock()
-	return &StateBuilder{cs: cs, height: cs.height, lock: &sync.Mutex{}}
+	return &StateLoader{cs: cs, height: cs.height, lock: &sync.Mutex{}}
 }
-
 func (cs *ChainState) Height() int64 {
 	cs.lock.Lock()
 	cs.lock.Unlock()
@@ -270,20 +300,20 @@ func (d *ProofData[T]) Val() *T {
 }
 
 type Manager[T any] struct {
-	stateCache   *utils.ConcurrentMap[int64, ProofData[T]]
-	newStateFunc utils.Function[int64, ProofData[T]]
+	stateCache   *concurrent2.ConcurrentMap[int64, ProofData[T]]
+	newStateFunc funcs.Function[int64, ProofData[T]]
 }
 
-func newStateManager[T any](ttl time.Duration, stateFunc utils.Function[int64, ProofData[T]]) *Manager[T] {
+func newStateManager[T any](ttl time.Duration, stateFunc funcs.Function[int64, ProofData[T]]) *Manager[T] {
 
 	return &Manager[T]{
-		stateCache:   utils.NewExpiresAfterDurationConcurrentMap[int64, ProofData[T]](ttl),
+		stateCache:   concurrent2.NewExpiresAfterDurationConcurrentMap[int64, ProofData[T]](ttl),
 		newStateFunc: stateFunc,
 	}
 }
 
-func (sk Manager[T]) Get(height int64) *utils.Future[*ProofData[T]] {
-	return utils.NewFuture[*ProofData[T]](func() *ProofData[T] {
+func (sk Manager[T]) Get(height int64) *concurrent2.Future[*ProofData[T]] {
+	return concurrent2.SupplyAsync[*ProofData[T]](func() *ProofData[T] {
 		res := sk.stateCache.ComputeIfAbsent(height, sk.newStateFunc)
 		return &res
 	})
