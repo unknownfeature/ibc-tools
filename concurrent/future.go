@@ -1,7 +1,6 @@
 package concurrent
 
 import (
-	"main/funcs"
 	"sync"
 	"time"
 )
@@ -17,9 +16,11 @@ type Future[T any] struct {
 	ticker  *time.Ticker
 }
 
-func SupplyAsync[T any](task funcs.Supplier[T]) *Future[T] {
+func SupplyAsync[T any](task func() T, to ...int) *Future[T] {
 	killAfterSec := defaultTimeout
-
+	if to != nil {
+		killAfterSec = to[0]
+	}
 	f := &Future[T]{task: task, resChan: make(chan T), lock: &sync.Mutex{}, ticker: time.NewTicker(time.Duration(killAfterSec) * time.Second)}
 	go func() {
 		res := f.task()
@@ -28,18 +29,22 @@ func SupplyAsync[T any](task funcs.Supplier[T]) *Future[T] {
 	return f
 }
 
-func (f *Future[T]) Done() bool {
-	f.lock.Lock()
-	defer f.lock.Unlock()
-	return f.done
-}
 func (f *Future[T]) Get() T {
 	f.lock.Lock()
 	defer f.lock.Unlock()
 	if f.done {
 		return f.res
 	}
-	f.res = <-f.resChan
-	f.done = true
-	return f.res
+	for {
+		select {
+		case f.res = <-f.resChan:
+			f.done = true
+			return f.res
+		case <-f.ticker.C:
+			f.done = true
+			return f.res
+		default:
+			// pass
+		}
+	}
 }

@@ -8,11 +8,26 @@ import (
 	"github.com/cosmos/relayer/v2/relayer/chains/cosmos"
 	"github.com/cosmos/relayer/v2/relayer/provider"
 	"main/concurrent"
+	"main/funcs"
 	"main/relayer/client"
 	"main/relayer/client/paths"
 	"main/relayer/client/state"
 	"main/utils"
 )
+
+func LatestHeightLoaderFactory(ctx context.Context, cosmosProvider *cosmos.CosmosProvider) funcs.Supplier[int64] {
+	factory := func(channel chan int64) funcs.Supplier[error] {
+		return func() error {
+			hdr, err := cosmosProvider.QueryLatestHeight(ctx)
+			if err != nil {
+				return err
+			}
+			channel <- hdr
+			return nil
+		}
+	}
+	return funcs.RetrySupplyAndReturn[int64](factory)
+}
 
 type Relayer struct {
 	source  *client.ChainClient
@@ -31,8 +46,9 @@ type Props struct {
 }
 
 func NewRelayer(ctx context.Context, cdc *codec.ProtoCodec, props *Props) *Relayer {
-	sourceHeight := concurrent.SupplyAsync[int64](utils.FuncWaitForNoErrorAndReturn(ctx, props.SourceProvider.QueryLatestHeight))
-	destHeight := concurrent.SupplyAsync[int64](utils.FuncWaitForNoErrorAndReturn(ctx, props.DestProvider.QueryLatestHeight))
+	sourceHeight := concurrent.SupplyAsync[int64](LatestHeightLoaderFactory(ctx, props.SourceProvider))
+	destHeight := concurrent.SupplyAsync[int64](LatestHeightLoaderFactory(ctx, props.DestProvider))
+
 	r := &Relayer{
 		source:  client.NewChainClient(ctx, cdc, props.SourceProvider, props.Path.Source(), sourceHeight, destHeight),
 		dest:    client.NewChainClient(ctx, cdc, props.DestProvider, props.Path.Dest(), destHeight, sourceHeight),
@@ -71,7 +87,7 @@ func (r *Relayer) ChanOpenInit() {
 			}, nil)
 
 		})
-	respCb := func(resp *provider.RelayerTxResponse, loader *state.StateLoader) {
+	respCb := func(resp *provider.RelayerTxResponse, loader *state.Loader) {
 		r.path.Source().SetChanId(utils.ParseChannelIDFromEvents(resp.Events))
 		r.updateChains(resp.Height, r.dest, r.source)
 		loader.WithChannelState()
@@ -104,7 +120,7 @@ func (r *Relayer) ChanOpenTry() {
 			}, nil)
 		})
 
-	respCb := func(resp *provider.RelayerTxResponse, loader *state.StateLoader) {
+	respCb := func(resp *provider.RelayerTxResponse, loader *state.Loader) {
 		r.path.Dest().SetChanId(utils.ParseChannelIDFromEvents(resp.Events))
 		r.updateChains(resp.Height, r.source, r.dest)
 		fmt.Println("channel tried")
@@ -136,7 +152,7 @@ func (r *Relayer) ChanOpenAck() {
 			}, nil)
 		})
 
-	respCb := func(resp *provider.RelayerTxResponse, loader *state.StateLoader) {
+	respCb := func(resp *provider.RelayerTxResponse, loader *state.Loader) {
 		r.updateChains(resp.Height, r.dest, r.source)
 		fmt.Println("channel acked")
 		loader.WithChannelState()
@@ -162,7 +178,7 @@ func (r *Relayer) ChanOpenConfirm() {
 			}, nil)
 		})
 
-	respCb := func(resp *provider.RelayerTxResponse, loader *state.StateLoader) {
+	respCb := func(resp *provider.RelayerTxResponse, loader *state.Loader) {
 		r.updateChains(resp.Height, r.source, r.dest)
 		fmt.Println("channel confirmed")
 		loader.WithChannelState()
@@ -193,7 +209,7 @@ func (r *Relayer) ChanUpgradeTry() {
 			}, nil)
 		})
 
-	respCb := func(resp *provider.RelayerTxResponse, loader *state.StateLoader) {
+	respCb := func(resp *provider.RelayerTxResponse, loader *state.Loader) {
 
 		r.updateChains(resp.Height, r.source, r.dest)
 		fmt.Println("upgrade tried acked")
@@ -223,7 +239,7 @@ func (r *Relayer) ChanUpgradeAck() {
 			}, nil)
 		})
 
-	respCb := func(resp *provider.RelayerTxResponse, loader *state.StateLoader) {
+	respCb := func(resp *provider.RelayerTxResponse, loader *state.Loader) {
 		r.updateChains(resp.Height, r.dest, r.source)
 		fmt.Println("channel upgrade acked")
 		loader.WithChannelState().WithUpgradeState()
@@ -254,7 +270,7 @@ func (r *Relayer) ChanUpgradeConfirm() {
 			}, nil)
 		})
 
-	respCb := func(resp *provider.RelayerTxResponse, loader *state.StateLoader) {
+	respCb := func(resp *provider.RelayerTxResponse, loader *state.Loader) {
 		r.updateChains(resp.Height, r.source, r.dest)
 		fmt.Println("upgrade confirmed")
 		loader.WithChannelState().WithUpgradeState()
@@ -284,7 +300,7 @@ func (r *Relayer) ChanUpgradeOpen() {
 			}, nil)
 		})
 
-	respCb := func(resp *provider.RelayerTxResponse, loader *state.StateLoader) {
+	respCb := func(resp *provider.RelayerTxResponse, loader *state.Loader) {
 
 		r.updateChains(resp.Height, r.dest, r.source)
 		fmt.Println("channel upgrade opened")
