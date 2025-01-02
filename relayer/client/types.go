@@ -34,7 +34,7 @@ type ChainClient struct {
 	ctx             context.Context
 	pathEnd         *paths.PathEnd
 	cdc             codec.Codec
-	chainState      *state.ChainState
+	chainState      *state.ChainStateManager
 	ibcHeaderLoader funcs.Function[int64, provider.IBCHeader]
 
 	// todo get rid of these
@@ -60,11 +60,23 @@ func NewChainClient(ctx context.Context, cdc *codec.ProtoCodec, chain *cosmos.Co
 	return cd
 }
 
-func (cd *ChainClient) Loader() *state.Loader {
-	return cd.chainState.ForLatestHeight()
+func (cd *ChainClient) Height() int64 {
+	return cd.chainState.Height()
 }
 
-func (cd *ChainClient) MaybePrependUpdateClientAndSend(cpHeight int64, cpIBCHeaderSupplier func(int64) provider.IBCHeader, messageSupplier func() *provider.RelayerMessage, cb funcs.BiConsumer[*provider.RelayerTxResponse, *state.Loader]) {
+func (cd *ChainClient) ClientState() *state.ClientState {
+	return cd.chainState.LatestClient()
+}
+
+func (cd *ChainClient) ChannelState() *state.ChannelState {
+	return cd.chainState.LatestChannel()
+}
+
+func (cd *ChainClient) ChannelUpgradeState() *state.ChannelUpgradeState {
+	return cd.chainState.LatestChannelUpgrade()
+}
+
+func (cd *ChainClient) MaybePrependUpdateClientAndSend(cpHeight int64, cpIBCHeaderSupplier func(int64) provider.IBCHeader, messageSupplier func() *provider.RelayerMessage, cb funcs.BiConsumer[*provider.RelayerTxResponse, *state.ChainStateManager]) {
 	cd.createUpdateClientMsgAndSend(cpHeight, cpIBCHeaderSupplier, func(message *provider.RelayerMessage) {
 		if message == nil {
 			cd.SendMessage(cd.ctx, messageSupplier(), "", cb)
@@ -83,7 +95,7 @@ func (cd *ChainClient) createUpdateClientMsgAndSend(cpHeight int64, cpIBCHeaderS
 		respond(nil)
 		return
 	}
-	cs := cd.chainState.ForLatestHeight().WithClientState().Load().ClientState()()
+	cs := cd.chainState.LatestClient().ClientStateSupplier()()
 
 	cd.latestCpHeight = int64(math.Max(float64(cpHeight), float64(cd.latestCpHeight)))
 
@@ -121,25 +133,21 @@ func (cd *ChainClient) IBCHeader(height int64) provider.IBCHeader {
 	return cd.ibcHeaderLoader(height)
 }
 
-func (cd *ChainClient) stateLoaderFor(newHeight int64) *state.Loader {
-	return cd.chainState.ForHeight(newHeight)
-}
-
-func (cd *ChainClient) SendMessage(ctx context.Context, msg *provider.RelayerMessage, memo string, cb ...func(*provider.RelayerTxResponse, *state.Loader)) {
+func (cd *ChainClient) SendMessage(ctx context.Context, msg *provider.RelayerMessage, memo string, cb ...func(*provider.RelayerTxResponse, *state.ChainStateManager)) {
 	resp, _, err := cd.chain.SendMessages(ctx, []provider.RelayerMessage{*msg}, memo)
 	funcs.HandleError(err)
-	loader := cd.stateLoaderFor(resp.Height).WithClientState()
+	cd.chainState.LoadClient(resp.Height)
 	if cb != nil {
-		cb[0](resp, loader)
+		cb[0](resp, cd.chainState)
 	}
 }
 
-func (cd *ChainClient) SendMessages(ctx context.Context, msgs []provider.RelayerMessage, memo string, cb ...funcs.BiConsumer[*provider.RelayerTxResponse, *state.Loader]) {
+func (cd *ChainClient) SendMessages(ctx context.Context, msgs []provider.RelayerMessage, memo string, cb ...funcs.BiConsumer[*provider.RelayerTxResponse, *state.ChainStateManager]) {
 	resp, _, err := cd.chain.SendMessages(ctx, msgs, memo)
 	funcs.HandleError(err)
-	loader := cd.stateLoaderFor(resp.Height).WithClientState()
+	cd.chainState.LoadClient(resp.Height)
 	if cb != nil {
-		cb[0](resp, loader)
+		cb[0](resp, cd.chainState)
 	}
 }
 

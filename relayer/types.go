@@ -36,25 +36,22 @@ type Relayer struct {
 	codec   *codec.ProtoCodec
 	path    *paths.Path
 	context context.Context
-	version string
 }
 
 type Props struct {
-	SourceProvider *cosmos.CosmosProvider
-	DestProvider   *cosmos.CosmosProvider
-	Path           *paths.Path
-	Version        string
+	SourceChain *cosmos.CosmosProvider
+	DestChain   *cosmos.CosmosProvider
+	Path        *paths.Path
 }
 
 func NewRelayer(ctx context.Context, cdc *codec.ProtoCodec, props *Props, sourceHeight, destHeight *concurrent.Future[int64]) *Relayer {
 
 	r := &Relayer{
-		source:  client.NewChainClient(ctx, cdc, props.SourceProvider, props.Path.Source(), sourceHeight, destHeight),
-		dest:    client.NewChainClient(ctx, cdc, props.DestProvider, props.Path.Dest(), destHeight, sourceHeight),
+		source:  client.NewChainClient(ctx, cdc, props.SourceChain, props.Path.Source(), sourceHeight, destHeight),
+		dest:    client.NewChainClient(ctx, cdc, props.DestChain, props.Path.Dest(), destHeight, sourceHeight),
 		codec:   cdc,
 		path:    props.Path,
 		context: ctx,
-		version: props.Version,
 	}
 	fmt.Println("created relayer")
 	r.updateChains(*destHeight.Get(), r.source, r.dest)
@@ -67,7 +64,7 @@ func (r *Relayer) updateChains(height int64, source, dest *client.ChainClient) {
 
 }
 
-func (r *Relayer) ChanOpenInit() {
+func (r *Relayer) ChanOpenInit(version string) string {
 
 	msgSupplier := concurrent.SupplyAsync[provider.RelayerMessage](
 		func() provider.RelayerMessage {
@@ -81,66 +78,64 @@ func (r *Relayer) ChanOpenInit() {
 						ChannelId: "",
 					},
 					ConnectionHops: []string{r.path.Source().ConnId()},
-					Version:        r.version,
+					Version:        version,
 				},
 				Signer: r.source.Address(),
 			}, nil)
 
 		})
-	respCb := func(resp *provider.RelayerTxResponse, loader *state.Loader) {
+	respCb := func(resp *provider.RelayerTxResponse, state *state.ChainStateManager) {
 		r.path.Source().SetChanId(utils.ParseChannelIDFromEvents(resp.Events))
 		r.updateChains(resp.Height, r.dest, r.source)
-		loader.WithChannelState()
-
+		state.LoadChannel(resp.Height)
 		fmt.Println("channel init")
 	}
-	r.source.MaybePrependUpdateClientAndSend(r.dest.Loader().Height(), r.dest.IBCHeader, msgSupplier.Get, respCb)
-
+	r.source.MaybePrependUpdateClientAndSend(r.dest.Height(), r.dest.IBCHeader, msgSupplier.Get, respCb)
+	return r.path.Source().ChanId()
 }
 
-func (r *Relayer) ChanOpenTry() {
+func (r *Relayer) ChanOpenTry() string {
 
-	loader := r.source.Loader()
-	chainState := loader.WithChannelState().Load()
+	chainState := r.source.ChannelState()
 
 	msgSupplier := concurrent.SupplyAsync[provider.RelayerMessage](
 		func() provider.RelayerMessage {
-			getChannelState := chainState.Channel()
+			getChannelState := chainState.ChannelStateSupplier()
 			return cosmos.NewCosmosMessage(&chantypes.MsgChannelOpenTry{
 				PortId:              r.path.Dest().Port(),
 				ProofInit:           getChannelState().Proof(),
 				ProofHeight:         getChannelState().Height(),
-				CounterpartyVersion: r.version,
+				CounterpartyVersion: getChannelState().Val().Version,
 				Channel: chantypes.Channel{State: chantypes.TRYOPEN,
 					Ordering: chantypes.UNORDERED,
 					Counterparty: chantypes.Counterparty{PortId: r.path.Source().Port(),
 						ChannelId: r.path.Source().ChanId()},
 					ConnectionHops: []string{r.path.Dest().ConnId()},
-					Version:        r.version},
+					Version:        getChannelState().Val().Version},
 				Signer: r.dest.Address(),
 			}, nil)
 		})
 
-	respCb := func(resp *provider.RelayerTxResponse, loader *state.Loader) {
+	respCb := func(resp *provider.RelayerTxResponse, state *state.ChainStateManager) {
 		r.path.Dest().SetChanId(utils.ParseChannelIDFromEvents(resp.Events))
 		r.updateChains(resp.Height, r.source, r.dest)
+		state.LoadChannel(resp.Height)
 		fmt.Println("channel tried")
-		loader.WithChannelState()
 
 	}
 
-	r.dest.MaybePrependUpdateClientAndSend(loader.Height(), r.source.IBCHeader, msgSupplier.Get, respCb)
+	r.dest.MaybePrependUpdateClientAndSend(chainState.Height(), r.source.IBCHeader, msgSupplier.Get, respCb)
+	return r.path.Dest().ChanId()
 
 }
 
 func (r *Relayer) ChanOpenAck() {
 
-	loader := r.dest.Loader()
-	chainState := loader.WithChannelState().Load()
+	chainState := r.dest.ChannelState()
 
 	msgSupplier := concurrent.SupplyAsync[provider.RelayerMessage](
 		func() provider.RelayerMessage {
-			getChannelState := chainState.Channel()
+			getChannelState := chainState.ChannelStateSupplier()
 
 			return cosmos.NewCosmosMessage(&chantypes.MsgChannelOpenAck{
 				PortId:                r.path.Source().Port(),
@@ -154,22 +149,21 @@ func (r *Relayer) ChanOpenAck() {
 			}, nil)
 		})
 
-	respCb := func(resp *provider.RelayerTxResponse, loader *state.Loader) {
+	respCb := func(resp *provider.RelayerTxResponse, state *state.ChainStateManager) {
 		r.updateChains(resp.Height, r.dest, r.source)
+		state.LoadChannel(resp.Height)
 		fmt.Println("channel acked")
-		loader.WithChannelState()
 	}
-	r.source.MaybePrependUpdateClientAndSend(loader.Height(), r.dest.IBCHeader, msgSupplier.Get, respCb)
+	r.source.MaybePrependUpdateClientAndSend(chainState.Height(), r.dest.IBCHeader, msgSupplier.Get, respCb)
 
 }
 
 func (r *Relayer) ChanOpenConfirm() {
-	loader := r.source.Loader()
-	chainState := loader.WithChannelState().Load()
+	chainState := r.source.ChannelState()
 
 	msgSupplier := concurrent.SupplyAsync[provider.RelayerMessage](
 		func() provider.RelayerMessage {
-			getChannelState := chainState.Channel()
+			getChannelState := chainState.ChannelStateSupplier()
 
 			return cosmos.NewCosmosMessage(&chantypes.MsgChannelOpenConfirm{
 				PortId:      r.path.Dest().Port(),
@@ -181,25 +175,24 @@ func (r *Relayer) ChanOpenConfirm() {
 			}, nil)
 		})
 
-	respCb := func(resp *provider.RelayerTxResponse, loader *state.Loader) {
+	respCb := func(resp *provider.RelayerTxResponse, state *state.ChainStateManager) {
 		r.updateChains(resp.Height, r.source, r.dest)
+		state.LoadChannel(resp.Height)
 		fmt.Println("channel confirmed")
-		loader.WithChannelState()
 
 	}
-	r.dest.MaybePrependUpdateClientAndSend(loader.Height(), r.source.IBCHeader, msgSupplier.Get, respCb)
+	r.dest.MaybePrependUpdateClientAndSend(chainState.Height(), r.source.IBCHeader, msgSupplier.Get, respCb)
 
 }
 
 func (r *Relayer) ChanUpgradeTry() {
 
-	loader := r.source.Loader()
-	chainState := loader.WithChannelState().WithUpgradeState().Load()
+	chainState := r.source.ChannelUpgradeState()
 
 	msgSupplier := concurrent.SupplyAsync[provider.RelayerMessage](
 		func() provider.RelayerMessage {
-			getChannelState := chainState.Channel()
-			getUpgradeState := chainState.Upgrade()
+			getChannelState := chainState.ChannelStateSupplier()
+			getUpgradeState := chainState.UpgradeStateSupplier()
 			return cosmos.NewCosmosMessage(&chantypes.MsgChannelUpgradeTry{
 				PortId:                        r.path.Dest().Port(),
 				ChannelId:                     r.path.Dest().ChanId(),
@@ -213,25 +206,25 @@ func (r *Relayer) ChanUpgradeTry() {
 			}, nil)
 		})
 
-	respCb := func(resp *provider.RelayerTxResponse, loader *state.Loader) {
+	respCb := func(resp *provider.RelayerTxResponse, state *state.ChainStateManager) {
 
 		r.updateChains(resp.Height, r.source, r.dest)
+		state.LatestChannelUpgrade()
 		fmt.Println("upgrade tried acked")
-		loader.WithChannelState().WithUpgradeState()
+
 	}
-	r.dest.MaybePrependUpdateClientAndSend(loader.Height(), r.source.IBCHeader, msgSupplier.Get, respCb)
+	r.dest.MaybePrependUpdateClientAndSend(chainState.Height(), r.source.IBCHeader, msgSupplier.Get, respCb)
 
 }
 
 func (r *Relayer) ChanUpgradeAck() {
 
-	loader := r.dest.Loader()
-	chainState := loader.WithChannelState().WithUpgradeState().Load()
+	chainState := r.dest.ChannelUpgradeState()
 
 	msgSupplier := concurrent.SupplyAsync[provider.RelayerMessage](
 		func() provider.RelayerMessage {
-			getChannelState := chainState.Channel()
-			getUpgradeState := chainState.Upgrade()
+			getChannelState := chainState.ChannelStateSupplier()
+			getUpgradeState := chainState.UpgradeStateSupplier()
 			return cosmos.NewCosmosMessage(&chantypes.MsgChannelUpgradeAck{
 				PortId:              r.path.Source().Port(),
 				ChannelId:           r.path.Source().ChanId(),
@@ -244,26 +237,25 @@ func (r *Relayer) ChanUpgradeAck() {
 			}, nil)
 		})
 
-	respCb := func(resp *provider.RelayerTxResponse, loader *state.Loader) {
+	respCb := func(resp *provider.RelayerTxResponse, state *state.ChainStateManager) {
 		r.updateChains(resp.Height, r.dest, r.source)
+		state.LoadChannelUpgrade(resp.Height)
 		fmt.Println("channel upgrade acked")
-		loader.WithChannelState().WithUpgradeState()
 
 	}
 
-	r.source.MaybePrependUpdateClientAndSend(loader.Height(), r.dest.IBCHeader, msgSupplier.Get, respCb)
+	r.source.MaybePrependUpdateClientAndSend(chainState.Height(), r.dest.IBCHeader, msgSupplier.Get, respCb)
 
 }
 
 func (r *Relayer) ChanUpgradeConfirm() {
 
-	loader := r.source.Loader()
-	chainState := loader.WithChannelState().WithUpgradeState().Load()
+	chainState := r.source.ChannelUpgradeState()
 
 	msgSupplier := concurrent.SupplyAsync[provider.RelayerMessage](
 		func() provider.RelayerMessage {
-			getChannelState := chainState.Channel()
-			getUpgradeState := chainState.Upgrade()
+			getChannelState := chainState.ChannelStateSupplier()
+			getUpgradeState := chainState.UpgradeStateSupplier()
 			return cosmos.NewCosmosMessage(&chantypes.MsgChannelUpgradeConfirm{
 				PortId:                   r.path.Dest().Port(),
 				ChannelId:                r.path.Dest().ChanId(),
@@ -276,25 +268,23 @@ func (r *Relayer) ChanUpgradeConfirm() {
 			}, nil)
 		})
 
-	respCb := func(resp *provider.RelayerTxResponse, loader *state.Loader) {
+	respCb := func(resp *provider.RelayerTxResponse, state *state.ChainStateManager) {
 		r.updateChains(resp.Height, r.source, r.dest)
+		state.LoadChannelUpgrade(resp.Height)
 		fmt.Println("upgrade confirmed")
-		loader.WithChannelState().WithUpgradeState()
 
 	}
 
-	r.dest.MaybePrependUpdateClientAndSend(loader.Height(), r.source.IBCHeader, msgSupplier.Get, respCb)
+	r.dest.MaybePrependUpdateClientAndSend(chainState.Height(), r.source.IBCHeader, msgSupplier.Get, respCb)
 
 }
 
 func (r *Relayer) ChanUpgradeOpen() {
-
-	loader := r.dest.Loader()
-	chainState := loader.WithChannelState().WithUpgradeState().Load()
+	chainState := r.dest.ChannelUpgradeState()
 
 	msgSupplier := concurrent.SupplyAsync[provider.RelayerMessage](
 		func() provider.RelayerMessage {
-			getChannelState := chainState.Channel()
+			getChannelState := chainState.ChannelStateSupplier()
 			return cosmos.NewCosmosMessage(&chantypes.MsgChannelUpgradeOpen{
 				PortId:                      r.path.Source().Port(),
 				ChannelId:                   r.path.Source().ChanId(),
@@ -307,14 +297,13 @@ func (r *Relayer) ChanUpgradeOpen() {
 			}, nil)
 		})
 
-	respCb := func(resp *provider.RelayerTxResponse, loader *state.Loader) {
+	respCb := func(resp *provider.RelayerTxResponse, state *state.ChainStateManager) {
 
 		r.updateChains(resp.Height, r.dest, r.source)
 		fmt.Println("channel upgrade opened")
-		loader.WithChannelState().WithUpgradeState()
 
 	}
 
-	r.source.MaybePrependUpdateClientAndSend(loader.Height(), r.dest.IBCHeader, msgSupplier.Get, respCb)
+	r.source.MaybePrependUpdateClientAndSend(chainState.Height(), r.dest.IBCHeader, msgSupplier.Get, respCb)
 
 }
