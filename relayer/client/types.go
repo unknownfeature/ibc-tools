@@ -56,8 +56,7 @@ func NewChainClient(ctx context.Context, cdc *codec.ProtoCodec, chain *cosmos.Co
 		processedClientUpdates: make(map[int64]bool),
 		chainState:             state.NewChainState(ctx, cdc, chain, pathEnd, *latestHeight.Get()),
 		latestCpHeight:         *latestCpHeight.Get(),
-		ibcHeaderLoader:        funcs.RetriableFunction[int64, provider.IBCHeader](IBCHeaderLoaderFactory(ctx, chain)),
-	}
+		ibcHeaderLoader:        funcs.RetriableFunctionWithConfig[int64, provider.IBCHeader](IBCHeaderLoaderFactory(ctx, chain), funcs.RetryConfig{TimesRetry: math.MaxInt})}
 	return cd
 }
 

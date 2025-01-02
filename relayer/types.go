@@ -46,9 +46,7 @@ type Props struct {
 	Version        string
 }
 
-func NewRelayer(ctx context.Context, cdc *codec.ProtoCodec, props *Props) *Relayer {
-	sourceHeight := concurrent.SupplyAsync[int64](LatestHeightLoaderFactory(ctx, props.SourceProvider))
-	destHeight := concurrent.SupplyAsync[int64](LatestHeightLoaderFactory(ctx, props.DestProvider))
+func NewRelayer(ctx context.Context, cdc *codec.ProtoCodec, props *Props, sourceHeight, destHeight *concurrent.Future[int64]) *Relayer {
 
 	r := &Relayer{
 		source:  client.NewChainClient(ctx, cdc, props.SourceProvider, props.Path.Source(), sourceHeight, destHeight),
@@ -166,7 +164,7 @@ func (r *Relayer) ChanOpenAck() {
 }
 
 func (r *Relayer) ChanOpenConfirm() {
-	loader := r.dest.Loader()
+	loader := r.source.Loader()
 	chainState := loader.WithChannelState().Load()
 
 	msgSupplier := concurrent.SupplyAsync[provider.RelayerMessage](
