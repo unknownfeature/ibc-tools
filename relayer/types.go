@@ -219,7 +219,7 @@ func (r *Relayer) ChanUpgradeTry() {
 	respCb := func(resp *provider.RelayerTxResponse, state *state.ChainStateManager) {
 
 		r.updateChains(resp.Height, r.source, r.dest)
-		state.LatestChannelUpgrade()
+		state.LoadChannelUpgrade(resp.Height)
 		fmt.Println("upgrade tried acked")
 
 	}
