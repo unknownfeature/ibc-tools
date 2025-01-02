@@ -62,7 +62,7 @@ func (c ConcurrentMap[K, V]) DeleteIf(predicate funcs.BiPredicate[K, V]) {
 	c.deleteIfAndCall(predicate)
 }
 
-func (c ConcurrentMap[K, V]) ComputeOnKeys(reducer funcs.Reducer[K]) optional.Optional[K] {
+func (c ConcurrentMap[K, V]) ReduceKeys(reducer funcs.Reducer[K]) optional.Optional[K] {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
