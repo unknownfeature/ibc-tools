@@ -1,6 +1,8 @@
-package utils
+package concurrent
 
-import "sync"
+import (
+	"sync"
+)
 
 type Future[T any] struct {
 	task    func() T
@@ -10,7 +12,8 @@ type Future[T any] struct {
 	lock    *sync.Mutex
 }
 
-func NewFuture[T any](task func() T) *Future[T] {
+func SupplyAsync[T any](task func() T) *Future[T] {
+
 	f := &Future[T]{task: task, resChan: make(chan T), lock: &sync.Mutex{}}
 	go func() {
 		res := f.task()

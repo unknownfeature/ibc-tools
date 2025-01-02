@@ -1,4 +1,4 @@
-package provider
+package chain
 
 import (
 	"context"
@@ -9,7 +9,7 @@ import (
 	"github.com/cosmos/relayer/v2/relayer"
 	"github.com/cosmos/relayer/v2/relayer/chains/cosmos"
 	"go.uber.org/zap"
-	"main/utils"
+	"main/funcs"
 	"os"
 	"path/filepath"
 )
@@ -22,29 +22,29 @@ type Props struct {
 	ConfigRoot string
 }
 
-func NewProvider(ctx context.Context, props Props) *cosmos.CosmosProvider {
+func NewChain(ctx context.Context, props Props) *cosmos.CosmosProvider {
 	chain, err := addChainFromFile(props.ChainID, fmt.Sprintf("%s.json", props.ChainID), props.ConfigRoot)
-	utils.HandleError(err)
+	funcs.HandleError(err)
 	err = chain.ChainProvider.Init(ctx)
-	utils.HandleError(err)
+	funcs.HandleError(err)
 	if props.Mnemonic != "" {
 		_, err = chain.ChainProvider.RestoreKey(props.Key, props.Mnemonic, 118, string(hd.Secp256k1Type))
-		utils.HandleError(err)
+		funcs.HandleError(err)
 
 	}
 	err = chain.ChainProvider.UseKey(props.Key)
-	utils.HandleError(err)
+	funcs.HandleError(err)
 
 	return chain.ChainProvider.(*cosmos.CosmosProvider)
 }
 func addChainFromFile(chainId, file, homePath string) (*relayer.Chain, error) {
 	var pcw cmd.ProviderConfigWrapper
 	if _, err := os.Stat(filepath.Join(homePath, file)); err != nil {
-		utils.HandleError(err)
+		funcs.HandleError(err)
 	}
 
 	byt, err := os.ReadFile(filepath.Join(homePath, file))
-	utils.HandleError(err)
+	funcs.HandleError(err)
 
 	if err = json.Unmarshal(byt, &pcw); err != nil {
 		return nil, err
@@ -55,7 +55,7 @@ func addChainFromFile(chainId, file, homePath string) (*relayer.Chain, error) {
 		logs,
 		homePath, true, chainId,
 	)
-	utils.HandleError(err)
+	funcs.HandleError(err)
 	c := relayer.NewChain(logs, prov, true)
 
 	return c, nil

@@ -8,19 +8,19 @@ import (
 	chantypes "github.com/cosmos/ibc-go/v8/modules/core/04-channel/types"
 	"github.com/cosmos/relayer/v2/relayer/provider"
 	"io/fs"
+	"main/funcs"
 	"os"
 	"strconv"
-	"sync"
 )
 
 func ReadSeedPhrase(path string) string {
 	file, err := os.Open(path)
-	HandleError(err)
+	funcs.HandleError(err)
 	defer file.Close()
 
 	decoder := json.NewDecoder(file)
 	var data map[string]string
-	HandleError(decoder.Decode(&data))
+	funcs.HandleError(decoder.Decode(&data))
 	return data["mnemonic"]
 }
 
@@ -33,12 +33,6 @@ func Exists(path string) (bool, error) {
 		return false, nil
 	}
 	return false, err
-}
-
-func HandleError(err error) {
-	if err != nil {
-		panic(err)
-	}
 }
 
 func ParseClientIDFromEvents(events []provider.RelayerEvent) string {
@@ -86,40 +80,11 @@ func ParseSequenceFromEvents(events []provider.RelayerEvent) uint64 {
 		for attributeKey, attributeValue := range event.Attributes {
 			if attributeKey == chantypes.AttributeKeySequence {
 				res, err := strconv.ParseUint(attributeValue, 10, 64)
-				HandleError(err)
+				funcs.HandleError(err)
 				return res
 			}
 		}
 		//}
 	}
 	panic("channel identifier event attribute not found")
-}
-
-func DoInLock(lock *sync.Mutex, cb func()) {
-	lock.Lock()
-	defer lock.Unlock()
-	cb()
-}
-
-func WaitForTheConditionToBecomeTrue[T any](resProvider func() T, predicate func(T) bool) T {
-	var res T
-	for res = resProvider(); !predicate(res); {
-		res = resProvider()
-	}
-	return res
-}
-
-func WaitForTheConditionToBecomeTrueAndReturnTransformed[T, K any](resProvider func() T, predicate func(T) bool, transformer func(T) K) K {
-	var res T
-	for res = resProvider(); !predicate(res); {
-		res = resProvider()
-	}
-	return transformer(res)
-}
-func SubmitWithWaitGroup(task func(), wg *sync.WaitGroup) {
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		task()
-	}()
 }
