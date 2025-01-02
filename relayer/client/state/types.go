@@ -17,14 +17,14 @@ import (
 	"sync"
 )
 
-func clientSateProofLoader(ctx context.Context, chainProvider *cosmos.CosmosProvider, pathEnd *paths.PathEnd) funcs.Function[int64, ProofData[tmclient.ClientState]] {
-	factory := func(resChan chan ProofData[tmclient.ClientState]) funcs.Function[int64, error] {
+func clientSateProofLoader(ctx context.Context, chainProvider *cosmos.CosmosProvider, pathEnd *paths.PathEnd) funcs.Function[int64, *ProofData[tmclient.ClientState]] {
+	factory := func(resChan chan *ProofData[tmclient.ClientState]) funcs.Function[int64, error] {
 		return func(height int64) error {
 			st, err := chainProvider.QueryClientState(ctx, height+1, pathEnd.ClientId())
 			if err != nil {
 				return err
 			}
-			resChan <- ProofData[tmclient.ClientState]{val: st.(*tmclient.ClientState), proof: nil, height: clienttypes.Height{RevisionHeight: uint64(height)}}
+			resChan <- &ProofData[tmclient.ClientState]{val: st.(*tmclient.ClientState), proof: nil, height: clienttypes.Height{RevisionHeight: uint64(height)}}
 			return nil
 		}
 	}
@@ -32,15 +32,15 @@ func clientSateProofLoader(ctx context.Context, chainProvider *cosmos.CosmosProv
 
 }
 
-func tendermintProofLoader[T any](ctx context.Context, chainProvider *cosmos.CosmosProvider, keySupplier funcs.Supplier[[]byte], transformer funcs.Function[[]byte, *T]) funcs.Function[int64, ProofData[T]] {
+func tendermintProofLoader[T any](ctx context.Context, chainProvider *cosmos.CosmosProvider, keySupplier funcs.Supplier[[]byte], transformer funcs.Function[[]byte, *T]) funcs.Function[int64, *ProofData[T]] {
 
-	factory := func(resChan chan ProofData[T]) funcs.Function[int64, error] {
+	factory := func(resChan chan *ProofData[T]) funcs.Function[int64, error] {
 		return func(height int64) error {
 			val, proof, proofHeight, err := chainProvider.QueryTendermintProof(ctx, height+1, keySupplier())
 			if err != nil {
 				return err
 			}
-			resChan <- ProofData[T]{val: transformer(val), proof: proof, height: proofHeight}
+			resChan <- &ProofData[T]{val: transformer(val), proof: proof, height: proofHeight}
 			return nil
 		}
 	}
@@ -99,29 +99,29 @@ func (s *State) Height() int64 {
 
 type ClientState struct {
 	State
-	clientState funcs.Supplier[*ProofData[tmclient.ClientState]]
+	clientStateSupplier funcs.Supplier[*ProofData[tmclient.ClientState]]
 }
 
 func (cs *ClientState) ClientStateSupplier() funcs.Supplier[*ProofData[tmclient.ClientState]] {
-	return cs.clientState
+	return cs.clientStateSupplier
 }
 
 type ChannelState struct {
 	State
-	channelState funcs.Supplier[*ProofData[chantypes.Channel]]
+	channelStateSupplier funcs.Supplier[*ProofData[chantypes.Channel]]
 }
 
 func (cs *ChannelState) ChannelStateSupplier() funcs.Supplier[*ProofData[chantypes.Channel]] {
-	return cs.channelState
+	return cs.channelStateSupplier
 }
 
 type ChannelUpgradeState struct {
 	ChannelState
-	upgradeState funcs.Supplier[*ProofData[chantypes.Upgrade]]
+	upgradeStateSupplier funcs.Supplier[*ProofData[chantypes.Upgrade]]
 }
 
 func (cs *ChannelUpgradeState) UpgradeStateSupplier() funcs.Supplier[*ProofData[chantypes.Upgrade]] {
-	return cs.upgradeState
+	return cs.upgradeStateSupplier
 }
 
 type ChainStateManager struct {
@@ -136,18 +136,18 @@ type ChainStateManager struct {
 	packetAcknowledgementStateManager *Manager[[]byte]
 }
 
-func NewChainState(ctx context.Context, cdc codec.Codec, chainProvider *cosmos.CosmosProvider, end *paths.PathEnd, height int64) *ChainStateManager {
+func NewChainStateManager(ctx context.Context, cdc codec.Codec, chain *cosmos.CosmosProvider, end *paths.PathEnd, height int64) *ChainStateManager {
 
 	return &ChainStateManager{
 		height:                            height,
 		lock:                              &sync.Mutex{},
-		channelStateManager:               newStateManager(tendermintProofLoader(ctx, chainProvider, channelKeySupplier(end), transformerForCreator(cdc, channelCreator))),
-		upgradeStateManager:               newStateManager(tendermintProofLoader(ctx, chainProvider, upgradeKeySupplier(end), transformerForCreator(cdc, upgradeCreator))),
-		clientStateManager:                newStateManager(clientSateProofLoader(ctx, chainProvider, end)),
-		connectionStateManager:            newStateManager(tendermintProofLoader(ctx, chainProvider, connectionKeySupplier(end), transformerForCreator(cdc, connectionStateCreator))),
-		packetCommitmentStateManager:      newStateManager[[]byte](tendermintProofLoader[[]byte](ctx, chainProvider, packetCommitmentKeySupplier(end), noopTransformer[*[]byte])),
-		packetReceiptStateManager:         newStateManager[[]byte](tendermintProofLoader[[]byte](ctx, chainProvider, packetReceiptKeySupplier(end), noopTransformer[*[]byte])),
-		packetAcknowledgementStateManager: newStateManager[[]byte](tendermintProofLoader[[]byte](ctx, chainProvider, packetAcknowledgementKeySupplier(end), noopTransformer[*[]byte])),
+		channelStateManager:               newStateManager(tendermintProofLoader(ctx, chain, channelKeySupplier(end), transformerForCreator(cdc, channelCreator))),
+		upgradeStateManager:               newStateManager(tendermintProofLoader(ctx, chain, upgradeKeySupplier(end), transformerForCreator(cdc, upgradeCreator))),
+		clientStateManager:                newStateManager(clientSateProofLoader(ctx, chain, end)),
+		connectionStateManager:            newStateManager(tendermintProofLoader(ctx, chain, connectionKeySupplier(end), transformerForCreator(cdc, connectionStateCreator))),
+		packetCommitmentStateManager:      newStateManager[[]byte](tendermintProofLoader[[]byte](ctx, chain, packetCommitmentKeySupplier(end), noopTransformer[*[]byte])),
+		packetReceiptStateManager:         newStateManager[[]byte](tendermintProofLoader[[]byte](ctx, chain, packetReceiptKeySupplier(end), noopTransformer[*[]byte])),
+		packetAcknowledgementStateManager: newStateManager[[]byte](tendermintProofLoader[[]byte](ctx, chain, packetAcknowledgementKeySupplier(end), noopTransformer[*[]byte])),
 	}
 
 }
@@ -224,21 +224,21 @@ func (d *ProofData[T]) Val() *T {
 }
 
 type Manager[T any] struct {
-	stateCache   *concurrent.ConcurrentMap[int64, *concurrent.Future[ProofData[T]]]
-	newStateFunc funcs.Function[int64, *concurrent.Future[ProofData[T]]]
+	stateCache   *concurrent.ConcurrentMap[int64, *concurrent.Future[*ProofData[T]]]
+	newStateFunc funcs.Function[int64, *concurrent.Future[*ProofData[T]]]
 }
 
-func newStateManager[T any](loadFunction funcs.Function[int64, ProofData[T]]) *Manager[T] {
+func newStateManager[T any](loadFunction funcs.Function[int64, *ProofData[T]]) *Manager[T] {
 
 	return &Manager[T]{ // todo add purge
-		stateCache: concurrent.NewConcurrentMap[int64, *concurrent.Future[ProofData[T]]](),
-		newStateFunc: func(height int64) *concurrent.Future[ProofData[T]] {
-			return concurrent.SupplyAsync(func() ProofData[T] { return loadFunction(height) })
+		stateCache: concurrent.NewConcurrentMap[int64, *concurrent.Future[*ProofData[T]]](),
+		newStateFunc: func(height int64) *concurrent.Future[*ProofData[T]] {
+			return concurrent.SupplyAsync(func() *ProofData[T] { return loadFunction(height) })
 		},
 	}
 }
 
-func (sk Manager[T]) Get(height int64) *concurrent.Future[ProofData[T]] {
+func (sk Manager[T]) Get(height int64) *concurrent.Future[*ProofData[T]] {
 	return sk.stateCache.ComputeIfAbsent(height, sk.newStateFunc)
 }
 

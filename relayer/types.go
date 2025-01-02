@@ -54,10 +54,20 @@ func NewRelayer(ctx context.Context, cdc *codec.ProtoCodec, props *Props, source
 		context: ctx,
 	}
 	fmt.Println("created relayer")
-	r.updateChains(*destHeight.Get(), r.source, r.dest)
-	r.updateChains(*sourceHeight.Get(), r.dest, r.source)
+	r.updateChains(destHeight.Get(), r.source, r.dest)
+	r.updateChains(sourceHeight.Get(), r.dest, r.source)
 
 	return r
+}
+
+func (r *Relayer) CloneForPath(otherPath *paths.Path) *Relayer {
+	return &Relayer{
+		source:  r.source.CloneForPathEnd(otherPath.Source()),
+		dest:    r.dest.CloneForPathEnd(otherPath.Dest()),
+		codec:   r.codec,
+		path:    otherPath,
+		context: r.context,
+	}
 }
 func (r *Relayer) updateChains(height int64, source, dest *client.ChainClient) {
 	go source.MaybeUpdateClient(height, dest.IBCHeader)
