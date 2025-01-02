@@ -22,7 +22,7 @@ type Props struct {
 	ConfigRoot string
 }
 
-func NewProvider(ctx context.Context, props Props) *cosmos.CosmosProvider {
+func NewChain(ctx context.Context, props Props) *cosmos.CosmosProvider {
 	chain, err := addChainFromFile(props.ChainID, fmt.Sprintf("%s.json", props.ChainID), props.ConfigRoot)
 	funcs.HandleError(err)
 	err = chain.ChainProvider.Init(ctx)
