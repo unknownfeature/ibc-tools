@@ -3,6 +3,7 @@ package utils
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	clienttypes "github.com/cosmos/ibc-go/v8/modules/core/02-client/types"
 	connectiontypes "github.com/cosmos/ibc-go/v8/modules/core/03-connection/types"
 	chantypes "github.com/cosmos/ibc-go/v8/modules/core/04-channel/types"
@@ -87,4 +88,10 @@ func ParseSequenceFromEvents(events []provider.RelayerEvent) uint64 {
 		//}
 	}
 	panic("channel identifier event attribute not found")
+}
+
+func AsyncPrintln(msg ...any) {
+	go func() {
+		fmt.Println(msg...)
+	}()
 }

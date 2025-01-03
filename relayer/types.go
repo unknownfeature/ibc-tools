@@ -2,7 +2,6 @@ package relayer
 
 import (
 	"context"
-	"fmt"
 	"github.com/cosmos/cosmos-sdk/codec"
 	chantypes "github.com/cosmos/ibc-go/v8/modules/core/04-channel/types"
 	"github.com/cosmos/relayer/v2/relayer/chains/cosmos"
@@ -20,7 +19,7 @@ func LatestHeightLoaderFactory(ctx context.Context, cosmosProvider *cosmos.Cosmo
 		return func() error {
 			hdr, err := cosmosProvider.QueryLatestHeight(ctx)
 			if err != nil {
-				fmt.Println("error", err.Error())
+				utils.AsyncPrintln("error", err.Error())
 				return err
 			}
 			channel <- hdr
@@ -53,7 +52,7 @@ func NewRelayer(ctx context.Context, cdc *codec.ProtoCodec, props *Props, source
 		path:    props.Path,
 		context: ctx,
 	}
-	fmt.Println("created relayer")
+	utils.AsyncPrintln("created relayer")
 	r.updateChains(destHeight.Get(), r.source, r.dest)
 	r.updateChains(sourceHeight.Get(), r.dest, r.source)
 
@@ -98,7 +97,7 @@ func (r *Relayer) ChanOpenInit(version string) string {
 		r.path.Source().SetChanId(utils.ParseChannelIDFromEvents(resp.Events))
 		r.updateChains(resp.Height, r.dest, r.source)
 		state.LoadChannel(resp.Height)
-		fmt.Println("channel init")
+		utils.AsyncPrintln("channel init")
 	}
 	r.source.MaybePrependUpdateClientAndSend(r.dest.Height(), r.dest.IBCHeader, msgSupplier.Get, respCb)
 	return r.path.Source().ChanId()
@@ -130,7 +129,7 @@ func (r *Relayer) ChanOpenTry() string {
 		r.path.Dest().SetChanId(utils.ParseChannelIDFromEvents(resp.Events))
 		r.updateChains(resp.Height, r.source, r.dest)
 		state.LoadChannel(resp.Height)
-		fmt.Println("channel tried")
+		utils.AsyncPrintln("channel tried")
 
 	}
 
@@ -162,7 +161,7 @@ func (r *Relayer) ChanOpenAck() {
 	respCb := func(resp *provider.RelayerTxResponse, state *state.ChainStateManager) {
 		r.updateChains(resp.Height, r.dest, r.source)
 		state.LoadChannel(resp.Height)
-		fmt.Println("channel acked")
+		utils.AsyncPrintln("channel acked")
 	}
 	r.source.MaybePrependUpdateClientAndSend(chainState.Height(), r.dest.IBCHeader, msgSupplier.Get, respCb)
 
@@ -188,7 +187,7 @@ func (r *Relayer) ChanOpenConfirm() {
 	respCb := func(resp *provider.RelayerTxResponse, state *state.ChainStateManager) {
 		r.updateChains(resp.Height, r.source, r.dest)
 		state.LoadChannel(resp.Height)
-		fmt.Println("channel confirmed")
+		utils.AsyncPrintln("channel confirmed")
 
 	}
 	r.dest.MaybePrependUpdateClientAndSend(chainState.Height(), r.source.IBCHeader, msgSupplier.Get, respCb)
@@ -220,7 +219,7 @@ func (r *Relayer) ChanUpgradeTry() {
 
 		r.updateChains(resp.Height, r.source, r.dest)
 		state.LoadChannelUpgrade(resp.Height)
-		fmt.Println("upgrade tried acked")
+		utils.AsyncPrintln("upgrade tried acked")
 
 	}
 	r.dest.MaybePrependUpdateClientAndSend(chainState.Height(), r.source.IBCHeader, msgSupplier.Get, respCb)
@@ -250,7 +249,7 @@ func (r *Relayer) ChanUpgradeAck() {
 	respCb := func(resp *provider.RelayerTxResponse, state *state.ChainStateManager) {
 		r.updateChains(resp.Height, r.dest, r.source)
 		state.LoadChannelUpgrade(resp.Height)
-		fmt.Println("channel upgrade acked")
+		utils.AsyncPrintln("channel upgrade acked")
 
 	}
 
@@ -281,7 +280,7 @@ func (r *Relayer) ChanUpgradeConfirm() {
 	respCb := func(resp *provider.RelayerTxResponse, state *state.ChainStateManager) {
 		r.updateChains(resp.Height, r.source, r.dest)
 		state.LoadChannelUpgrade(resp.Height)
-		fmt.Println("upgrade confirmed")
+		utils.AsyncPrintln("upgrade confirmed")
 
 	}
 
@@ -310,7 +309,7 @@ func (r *Relayer) ChanUpgradeOpen() {
 	respCb := func(resp *provider.RelayerTxResponse, state *state.ChainStateManager) {
 
 		r.updateChains(resp.Height, r.dest, r.source)
-		fmt.Println("channel upgrade opened")
+		utils.AsyncPrintln("channel upgrade opened")
 
 	}
 
