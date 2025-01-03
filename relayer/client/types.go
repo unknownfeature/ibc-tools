@@ -147,20 +147,16 @@ func (cd *ChainClient) IBCHeader(height int64) provider.IBCHeader {
 	return cd.ibcHeaderLoader(height)
 }
 
-func (cd *ChainClient) SendMessage(ctx context.Context, msg provider.RelayerMessage, memo string, cb ...func(*provider.RelayerTxResponse, *state.ChainStateManager)) {
-	resp, _, err := cd.chain.SendMessages(ctx, []provider.RelayerMessage{msg}, memo)
-	funcs.HandleError(err)
-	cd.chainState.LoadClient(resp.Height)
-	if cb != nil {
-		cb[0](resp, cd.chainState)
-	}
+func (cd *ChainClient) SendMessage(ctx context.Context, msg provider.RelayerMessage, memo string, cb ...funcs.BiConsumer[*provider.RelayerTxResponse, *state.ChainStateManager]) {
+	cd.SendMessages(ctx, []provider.RelayerMessage{msg}, memo, cb...)
+
 }
 
 func (cd *ChainClient) SendMessages(ctx context.Context, msgs []provider.RelayerMessage, memo string, cb ...funcs.BiConsumer[*provider.RelayerTxResponse, *state.ChainStateManager]) {
 	resp, _, err := cd.chain.SendMessages(ctx, msgs, memo)
 	funcs.HandleError(err)
-	cd.chainState.LoadClient(resp.Height)
 	if cb != nil {
+		cd.chainState.LoadClient(resp.Height)
 		cb[0](resp, cd.chainState)
 	}
 }
